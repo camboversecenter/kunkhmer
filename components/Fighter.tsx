@@ -2,10 +2,19 @@
 import React, { useRef, useEffect, useMemo } from 'react';
 import { useFrame } from '@react-three/fiber';
 import { Group, Vector3, Mesh, MeshStandardMaterial, MeshBasicMaterial, MathUtils, AdditiveBlending, DoubleSide } from 'three';
-import { Sparkles, Billboard, Torus, Icosahedron, Ring, Text } from '@react-three/drei';
+import { Sparkles, Billboard, Torus, Icosahedron, Ring, Text, useGLTF } from '@react-three/drei';
 import { useXR } from '@react-three/xr';
 import { MoveType, SakYantType, RitualBuff, GameState } from '../types';
 import { SAK_YANT_DB, skinBase, skinFlushed, shortsMaterial } from '../constants';
+
+// --- CUSTOM MODEL COMPONENT ---
+const CustomFighterModel = ({ url }: { url: string }) => {
+    const { scene } = useGLTF(url);
+    // clone scene to avoid sharing instances if multiple fighters use it
+    const clone = useMemo(() => scene.clone(), [scene]);
+
+    return <primitive object={clone} scale={1.2} position={[0, 0, 0]} rotation={[0, Math.PI, 0]} />;
+};
 
 interface FighterProps {
     position: [number, number, number];
@@ -584,6 +593,18 @@ const Fighter: React.FC<FighterProps> = ({
     // Integrity Tracking for VFX
     const prevIntegrity = useRef(sakYant?.currentIntegrity || 0);
     const [showBreakVFX, setShowBreakVFX] = React.useState(false);
+
+    // Custom Model State
+    const [hasCustomModel, setHasCustomModel] = React.useState(false);
+
+    useEffect(() => {
+        // Check if custom model exists
+        fetch('/assets/models/fighter.glb', { method: 'HEAD' })
+            .then(res => {
+                if (res.ok) setHasCustomModel(true);
+            })
+            .catch(() => setHasCustomModel(false));
+    }, []);
 
     useEffect(() => {
         // Logic: If we had integrity before, and now it's 0 (or we lost it), trigger break
@@ -1383,153 +1404,162 @@ const Fighter: React.FC<FighterProps> = ({
 
             {/* --- BODY CONTAINER FOR INDEPENDENT ROTATION --- */}
             <group ref={bodyRef}>
-                <group ref={headRef} position={[0, 1.65, 0.05]} rotation={[0.1, 0, 0]}>
-                    {/* Hide head in First Person View only for Player or in VR */}
-                    {!(isPlayer && (isFirstPerson || isPresenting)) && (
-                        <group>
-                            <mesh castShadow receiveShadow>
-                                <sphereGeometry args={[0.125, 32, 32]} />
-                                <meshPhysicalMaterial {...skinBase} emissive={ritualBuff?.isActive ? "#facc15" : "#000"} emissiveIntensity={ritualBuff?.isActive ? 0.2 : 0} />
-                            </mesh>
-                            <mesh position={[0, -0.06, 0.03]}>
-                                <boxGeometry args={[0.14, 0.14, 0.15]} />
-                                <meshPhysicalMaterial {...skinBase} emissive={ritualBuff?.isActive ? "#facc15" : "#000"} emissiveIntensity={ritualBuff?.isActive ? 0.2 : 0} />
-                            </mesh>
-                            <mesh position={[0, 0, 0.11]} rotation={[-0.2, 0, 0]}>
-                                <coneGeometry args={[0.015, 0.05, 4, 16]} />
-                                <meshPhysicalMaterial {...skinFlushed} />
-                            </mesh>
-                            <KramaHeadband />
-                        </group>
-                    )}
-                </group>
-
-                <group ref={torsoRef} position={[0, 1.05, 0]}>
-                    {/* Hide torso in First Person View or VR, but keep arms visible */}
-                    {isBodyVisible && !isFirstPerson && (
-                        <group>
-                            <mesh position={[0, 0.32, 0]} castShadow receiveShadow>
-                                <cylinderGeometry args={[0.24, 0.18, 0.35, 32]} />
-                                <meshPhysicalMaterial {...skinBase} emissive={ritualBuff?.isActive ? "#facc15" : "#000"} emissiveIntensity={ritualBuff?.isActive ? 0.2 : 0} />
-                            </mesh>
-                            <mesh position={[0.24, 0.42, 0]} castShadow receiveShadow>
-                                <sphereGeometry args={[0.11, 32, 32]} />
-                                <meshPhysicalMaterial {...skinBase} emissive={ritualBuff?.isActive ? "#facc15" : "#000"} emissiveIntensity={ritualBuff?.isActive ? 0.2 : 0} />
-                            </mesh>
-                            <mesh position={[-0.24, 0.42, 0]} castShadow receiveShadow>
-                                <sphereGeometry args={[0.11, 32, 32]} />
-                                <meshPhysicalMaterial {...skinBase} emissive={ritualBuff?.isActive ? "#facc15" : "#000"} emissiveIntensity={ritualBuff?.isActive ? 0.2 : 0} />
-                            </mesh>
-                            <mesh position={[0, 0.05, 0]} castShadow receiveShadow>
-                                <cylinderGeometry args={[0.17, 0.16, 0.35, 32]} />
-                                <meshPhysicalMaterial {...skinBase} emissive={ritualBuff?.isActive ? "#facc15" : "#000"} emissiveIntensity={ritualBuff?.isActive ? 0.2 : 0} />
-                            </mesh>
-                            {sakYant && sakYant.currentIntegrity > 0 && <SakYantTattoo type={sakYant.type} level={sakYant.level} />}
-                        </group>
-                    )}
-
-                    {/* Arms - Always Visible */}
-                    <group ref={armLRef} position={[0.24, 0.35, 0]}>
-                        <mesh position={[0, -0.2, 0]} rotation={[0, 0, -0.1]} castShadow receiveShadow>
-                            <capsuleGeometry args={[0.08, 0.35, 8, 32]} />
-                            <meshPhysicalMaterial {...skinBase} emissive={ritualBuff?.isActive ? "#facc15" : "#000"} emissiveIntensity={ritualBuff?.isActive ? 0.5 : 0} />
-                        </mesh>
-                        <mesh position={[0, -0.42, 0]} castShadow>
-                            <sphereGeometry args={[0.075, 24, 24]} />
-                            <meshPhysicalMaterial {...skinFlushed} />
-                        </mesh>
-                        <group ref={forearmLRef} position={[0, -0.42, 0]}>
-                            <mesh position={[0, -0.22, 0]} castShadow>
-                                <capsuleGeometry args={[0.07, 0.35, 8, 32]} />
-                                <meshPhysicalMaterial {...skinBase} emissive={ritualBuff?.isActive ? "#facc15" : "#000"} emissiveIntensity={ritualBuff?.isActive ? 0.5 : 0} />
-                            </mesh>
-                            <mesh position={[0, -0.44, 0]} rotation={[0.2, 0, 0]}>
-                                <boxGeometry args={[0.15, 0.18, 0.18]} />
-                                <meshStandardMaterial color={color} roughness={0.4} />
-                            </mesh>
-                        </group>
-                    </group>
-
-                    <group ref={armRRef} position={[-0.24, 0.35, 0]}>
-                        <mesh position={[0, -0.2, 0]} rotation={[0, 0, 0.1]} castShadow receiveShadow>
-                            <capsuleGeometry args={[0.08, 0.35, 8, 32]} />
-                            <meshPhysicalMaterial {...skinBase} emissive={ritualBuff?.isActive ? "#facc15" : "#000"} emissiveIntensity={ritualBuff?.isActive ? 0.5 : 0} />
-                        </mesh>
-                        <mesh position={[0, -0.42, 0]} castShadow>
-                            <sphereGeometry args={[0.075, 24, 24]} />
-                            <meshPhysicalMaterial {...skinFlushed} />
-                        </mesh>
-                        <group ref={forearmRRef} position={[0, -0.42, 0]}>
-                            <mesh position={[0, -0.22, 0]} castShadow>
-                                <capsuleGeometry args={[0.07, 0.35, 8, 32]} />
-                                <meshPhysicalMaterial {...skinBase} emissive={ritualBuff?.isActive ? "#facc15" : "#000"} emissiveIntensity={ritualBuff?.isActive ? 0.5 : 0} />
-                            </mesh>
-                            <mesh position={[0, -0.44, 0]} rotation={[0.2, 0, 0]}>
-                                <boxGeometry args={[0.15, 0.18, 0.18]} />
-                                <meshStandardMaterial color={color} roughness={0.4} />
-                            </mesh>
-
-                            {/* VFX Attachment Point on Hand */}
-                            {(action === MoveType.PUNCH || action === MoveType.ELBOW) && (
-                                <group position={[0, -0.4, 0]} userData={{ isFire: true }} visible={false}>
-                                    <FireVFX visible={true} />
-                                </group>
-                            )}
-                            {(action === MoveType.UPPERCUT) && (
-                                <group position={[0, -0.4, 0]} userData={{ isUppercut: true }} visible={false}>
-                                    <UppercutVFX visible={true} color={color} />
-                                </group>
-                            )}
-                        </group>
-                    </group>
-                </group>
-
-                {/* Shorts */}
-                {isBodyVisible && (
-                    <group position={[0, 0.85, 0]}>
-                        <mesh castShadow receiveShadow>
-                            <cylinderGeometry args={[0.23, 0.27, 0.32, 32]} />
-                            <meshStandardMaterial color="#111" {...shortsMaterial} />
-                        </mesh>
-                        <mesh position={[0, 0, 0.12]}>
-                            <boxGeometry args={[0.28, 0.1, 0.05]} />
-                            <meshStandardMaterial color={color} />
-                        </mesh>
-                        <mesh position={[0.23, 0, 0]} rotation={[0, 0, 0.1]}>
-                            <boxGeometry args={[0.02, 0.32, 0.15]} />
-                            <meshStandardMaterial color={color} />
-                        </mesh>
-                        <mesh position={[-0.23, 0, 0]} rotation={[0, 0, -0.1]}>
-                            <boxGeometry args={[0.02, 0.32, 0.15]} />
-                            <meshStandardMaterial color={color} />
-                        </mesh>
-                    </group>
-                )}
-
-                {isBodyVisible && (
+                {hasCustomModel ? (
+                    <React.Suspense fallback={null}>
+                        <CustomFighterModel url="/assets/models/fighter.glb" />
+                    </React.Suspense>
+                ) : (
                     <>
-                        <group ref={legLRef} position={[0.15, 0.8, 0]}>
-                            <RealisticLeg isAttacking={false} activeMoveColor={activeMoveColor} />
+                        {/* PROCEDURAL BODY */}
+                        <group ref={headRef} position={[0, 1.65, 0.05]} rotation={[0.1, 0, 0]}>
+                            {/* Hide head in First Person View only for Player or in VR */}
+                            {!(isPlayer && (isFirstPerson || isPresenting)) && (
+                                <group>
+                                    <mesh castShadow receiveShadow>
+                                        <sphereGeometry args={[0.125, 32, 32]} />
+                                        <meshPhysicalMaterial {...skinBase} emissive={ritualBuff?.isActive ? "#facc15" : "#000"} emissiveIntensity={ritualBuff?.isActive ? 0.2 : 0} />
+                                    </mesh>
+                                    <mesh position={[0, -0.06, 0.03]}>
+                                        <boxGeometry args={[0.14, 0.14, 0.15]} />
+                                        <meshPhysicalMaterial {...skinBase} emissive={ritualBuff?.isActive ? "#facc15" : "#000"} emissiveIntensity={ritualBuff?.isActive ? 0.2 : 0} />
+                                    </mesh>
+                                    <mesh position={[0, 0, 0.11]} rotation={[-0.2, 0, 0]}>
+                                        <coneGeometry args={[0.015, 0.05, 4, 16]} />
+                                        <meshPhysicalMaterial {...skinFlushed} />
+                                    </mesh>
+                                    <KramaHeadband />
+                                </group>
+                            )}
                         </group>
 
-                        <group ref={legRRef} position={[-0.15, 0.8, 0]}>
-                            <RealisticLeg
-                                isAttacking={action === MoveType.KICK || action === MoveType.KNEE}
-                                activeMoveColor={activeMoveColor}
-                                lowerLegRef={lowerLegRRef}
-                            />
-                            {/* Leg VFX Attachments */}
-                            {action === MoveType.KICK && (
-                                <group position={[0, -0.6, 0]}>
-                                    <KickSlashVFX visible={true} color={activeMoveColor} />
+                        <group ref={torsoRef} position={[0, 1.05, 0]}>
+                            {/* Hide torso in First Person View or VR, but keep arms visible */}
+                            {isBodyVisible && !isFirstPerson && (
+                                <group>
+                                    <mesh position={[0, 0.32, 0]} castShadow receiveShadow>
+                                        <cylinderGeometry args={[0.24, 0.18, 0.35, 32]} />
+                                        <meshPhysicalMaterial {...skinBase} emissive={ritualBuff?.isActive ? "#facc15" : "#000"} emissiveIntensity={ritualBuff?.isActive ? 0.2 : 0} />
+                                    </mesh>
+                                    <mesh position={[0.24, 0.42, 0]} castShadow receiveShadow>
+                                        <sphereGeometry args={[0.11, 32, 32]} />
+                                        <meshPhysicalMaterial {...skinBase} emissive={ritualBuff?.isActive ? "#facc15" : "#000"} emissiveIntensity={ritualBuff?.isActive ? 0.2 : 0} />
+                                    </mesh>
+                                    <mesh position={[-0.24, 0.42, 0]} castShadow receiveShadow>
+                                        <sphereGeometry args={[0.11, 32, 32]} />
+                                        <meshPhysicalMaterial {...skinBase} emissive={ritualBuff?.isActive ? "#facc15" : "#000"} emissiveIntensity={ritualBuff?.isActive ? 0.2 : 0} />
+                                    </mesh>
+                                    <mesh position={[0, 0.05, 0]} castShadow receiveShadow>
+                                        <cylinderGeometry args={[0.17, 0.16, 0.35, 32]} />
+                                        <meshPhysicalMaterial {...skinBase} emissive={ritualBuff?.isActive ? "#facc15" : "#000"} emissiveIntensity={ritualBuff?.isActive ? 0.2 : 0} />
+                                    </mesh>
+                                    {sakYant && sakYant.currentIntegrity > 0 && <SakYantTattoo type={sakYant.type} level={sakYant.level} />}
                                 </group>
                             )}
-                            {action === MoveType.KNEE && (
-                                <group ref={kneeImpactRef} position={[0, -0.4, 0.2]} visible={false}>
-                                    <KneeImpactVFX visible={true} color={activeMoveColor} />
+
+                            {/* Arms - Always Visible */}
+                            <group ref={armLRef} position={[0.24, 0.35, 0]}>
+                                <mesh position={[0, -0.2, 0]} rotation={[0, 0, -0.1]} castShadow receiveShadow>
+                                    <capsuleGeometry args={[0.08, 0.35, 8, 32]} />
+                                    <meshPhysicalMaterial {...skinBase} emissive={ritualBuff?.isActive ? "#facc15" : "#000"} emissiveIntensity={ritualBuff?.isActive ? 0.5 : 0} />
+                                </mesh>
+                                <mesh position={[0, -0.42, 0]} castShadow>
+                                    <sphereGeometry args={[0.075, 24, 24]} />
+                                    <meshPhysicalMaterial {...skinFlushed} />
+                                </mesh>
+                                <group ref={forearmLRef} position={[0, -0.42, 0]}>
+                                    <mesh position={[0, -0.22, 0]} castShadow>
+                                        <capsuleGeometry args={[0.07, 0.35, 8, 32]} />
+                                        <meshPhysicalMaterial {...skinBase} emissive={ritualBuff?.isActive ? "#facc15" : "#000"} emissiveIntensity={ritualBuff?.isActive ? 0.5 : 0} />
+                                    </mesh>
+                                    <mesh position={[0, -0.44, 0]} rotation={[0.2, 0, 0]}>
+                                        <boxGeometry args={[0.15, 0.18, 0.18]} />
+                                        <meshStandardMaterial color={color} roughness={0.4} />
+                                    </mesh>
                                 </group>
-                            )}
+                            </group>
+
+                            <group ref={armRRef} position={[-0.24, 0.35, 0]}>
+                                <mesh position={[0, -0.2, 0]} rotation={[0, 0, 0.1]} castShadow receiveShadow>
+                                    <capsuleGeometry args={[0.08, 0.35, 8, 32]} />
+                                    <meshPhysicalMaterial {...skinBase} emissive={ritualBuff?.isActive ? "#facc15" : "#000"} emissiveIntensity={ritualBuff?.isActive ? 0.5 : 0} />
+                                </mesh>
+                                <mesh position={[0, -0.42, 0]} castShadow>
+                                    <sphereGeometry args={[0.075, 24, 24]} />
+                                    <meshPhysicalMaterial {...skinFlushed} />
+                                </mesh>
+                                <group ref={forearmRRef} position={[0, -0.42, 0]}>
+                                    <mesh position={[0, -0.22, 0]} castShadow>
+                                        <capsuleGeometry args={[0.07, 0.35, 8, 32]} />
+                                        <meshPhysicalMaterial {...skinBase} emissive={ritualBuff?.isActive ? "#facc15" : "#000"} emissiveIntensity={ritualBuff?.isActive ? 0.5 : 0} />
+                                    </mesh>
+                                    <mesh position={[0, -0.44, 0]} rotation={[0.2, 0, 0]}>
+                                        <boxGeometry args={[0.15, 0.18, 0.18]} />
+                                        <meshStandardMaterial color={color} roughness={0.4} />
+                                    </mesh>
+
+                                    {/* VFX Attachment Point on Hand */}
+                                    {(action === MoveType.PUNCH || action === MoveType.ELBOW) && (
+                                        <group position={[0, -0.4, 0]} userData={{ isFire: true }} visible={false}>
+                                            <FireVFX visible={true} />
+                                        </group>
+                                    )}
+                                    {(action === MoveType.UPPERCUT) && (
+                                        <group position={[0, -0.4, 0]} userData={{ isUppercut: true }} visible={false}>
+                                            <UppercutVFX visible={true} color={color} />
+                                        </group>
+                                    )}
+                                </group>
+                            </group>
                         </group>
+
+                        {/* Shorts */}
+                        {isBodyVisible && (
+                            <group position={[0, 0.85, 0]}>
+                                <mesh castShadow receiveShadow>
+                                    <cylinderGeometry args={[0.23, 0.27, 0.32, 32]} />
+                                    <meshStandardMaterial color="#111" {...shortsMaterial} />
+                                </mesh>
+                                <mesh position={[0, 0, 0.12]}>
+                                    <boxGeometry args={[0.28, 0.1, 0.05]} />
+                                    <meshStandardMaterial color={color} />
+                                </mesh>
+                                <mesh position={[0.23, 0, 0]} rotation={[0, 0, 0.1]}>
+                                    <boxGeometry args={[0.02, 0.32, 0.15]} />
+                                    <meshStandardMaterial color={color} />
+                                </mesh>
+                                <mesh position={[-0.23, 0, 0]} rotation={[0, 0, -0.1]}>
+                                    <boxGeometry args={[0.02, 0.32, 0.15]} />
+                                    <meshStandardMaterial color={color} />
+                                </mesh>
+                            </group>
+                        )}
+
+                        {isBodyVisible && (
+                            <>
+                                <group ref={legLRef} position={[0.15, 0.8, 0]}>
+                                    <RealisticLeg isAttacking={false} activeMoveColor={activeMoveColor} />
+                                </group>
+
+                                <group ref={legRRef} position={[-0.15, 0.8, 0]}>
+                                    <RealisticLeg
+                                        isAttacking={action === MoveType.KICK || action === MoveType.KNEE}
+                                        activeMoveColor={activeMoveColor}
+                                        lowerLegRef={lowerLegRRef}
+                                    />
+                                    {/* Leg VFX Attachments */}
+                                    {action === MoveType.KICK && (
+                                        <group position={[0, -0.6, 0]}>
+                                            <KickSlashVFX visible={true} color={activeMoveColor} />
+                                        </group>
+                                    )}
+                                    {action === MoveType.KNEE && (
+                                        <group ref={kneeImpactRef} position={[0, -0.4, 0.2]} visible={false}>
+                                            <KneeImpactVFX visible={true} color={activeMoveColor} />
+                                        </group>
+                                    )}
+                                </group>
+                            </>
+                        )}
                     </>
                 )}
             </group>

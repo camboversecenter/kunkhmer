@@ -12,6 +12,8 @@ let isMuted = false;
 let nextNoteTime = 0.0;
 let beatCount = 0;
 let musicTimerID: number | null = null;
+let audioFileElement: HTMLAudioElement | null = null;
+let usingLocalAudio = false;
 
 // Authentic Sarama settings
 let currentBpm = 100; // Starts slow, accelerates
@@ -504,6 +506,11 @@ export const toggleMute = () => {
     isMuted = !isMuted;
     if (musicGainNode) musicGainNode.gain.value = isMuted ? 0 : 0.4;
     if (crowdGainNode) crowdGainNode.gain.value = isMuted ? 0 : 0.2;
+
+    if (audioFileElement) {
+        audioFileElement.volume = isMuted ? 0 : 0.4;
+    }
+
     return isMuted;
 }
 
@@ -520,10 +527,44 @@ export const startBackgroundMusic = () => {
     // Start Music
     isMusicPlaying = true;
     currentBpm = 100; // Reset Tempo on start
-    beatCount = 0;
-    currentMotifIndex = 0;
-    nextNoteTime = ctx.currentTime + 0.1;
-    scheduler();
+
+    // Try to load local audio file first
+    if (!audioFileElement) {
+        const audio = new Audio('/assets/audio/sarama.mp3');
+        audio.loop = true;
+        audio.volume = isMuted ? 0 : 0.4;
+
+        // Add error listener to fallback if file is missing
+        audio.addEventListener('error', (e) => {
+            console.warn("Local audio not found, falling back to synth", e);
+            usingLocalAudio = false;
+            // Fallback to synth immediately
+            beatCount = 0;
+            currentMotifIndex = 0;
+            nextNoteTime = ctx.currentTime + 0.1;
+            scheduler();
+        });
+
+        // Add canplay listener to start if valid
+        audio.addEventListener('canplaythrough', () => {
+            console.log("Using local audio file");
+            usingLocalAudio = true;
+            if (isMusicPlaying) audio.play().catch(e => console.error("Play failed", e));
+        });
+
+        audioFileElement = audio;
+        // Trigger load
+        audio.load();
+    } else if (usingLocalAudio) {
+        audioFileElement.currentTime = 0;
+        audioFileElement.play().catch(e => console.error("Play failed", e));
+    } else {
+        // Fallback or synth was already active
+        beatCount = 0;
+        currentMotifIndex = 0;
+        nextNoteTime = ctx.currentTime + 0.1;
+        scheduler();
+    }
 
     // Start Crowd
     startCrowdAmbience(ctx);
@@ -531,6 +572,12 @@ export const startBackgroundMusic = () => {
 
 export const stopBackgroundMusic = () => {
     isMusicPlaying = false;
+
+    if (usingLocalAudio && audioFileElement) {
+        audioFileElement.pause();
+        audioFileElement.currentTime = 0;
+    }
+
     if (musicTimerID) {
         clearTimeout(musicTimerID);
         musicTimerID = null;
