@@ -1,0 +1,7 @@
+node_modules
+dist
+.git
+.env
+.env.local
+tsc_errors.txt
+tsc_errors_clean.txt
