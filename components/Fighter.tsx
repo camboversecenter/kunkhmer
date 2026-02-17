@@ -599,9 +599,16 @@ const Fighter: React.FC<FighterProps> = ({
 
     useEffect(() => {
         // Check if custom model exists
+        setHasCustomModel(false);
         fetch('/assets/models/fighter.glb', { method: 'HEAD' })
             .then(res => {
-                if (res.ok) setHasCustomModel(true);
+                const type = res.headers.get('content-type');
+                // Ensure it exists AND is not HTML (which implies 404 fallback in SPA)
+                if (res.ok && type && !type.includes('text/html')) {
+                    setHasCustomModel(true);
+                } else {
+                    setHasCustomModel(false);
+                }
             })
             .catch(() => setHasCustomModel(false));
     }, []);
