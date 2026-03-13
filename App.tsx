@@ -1214,6 +1214,33 @@ const App: React.FC = () => {
         return damage;
     };
 
+    const getLocalOnlineStatsSnapshot = (overrides: Partial<FighterStats> = {}): Partial<FighterStats> => {
+        const heroName = playerStatsRef.current.heroId ? HEROES_DB[playerStatsRef.current.heroId]?.name : undefined;
+
+        return {
+            heroId: playerStatsRef.current.heroId,
+            name: heroName || playerStatsRef.current.name,
+            maxHealth: playerStatsRef.current.maxHealth,
+            currentHealth: playerStatsRef.current.currentHealth,
+            maxStamina: playerStatsRef.current.maxStamina,
+            stamina: playerStatsRef.current.stamina,
+            activeSakYant: playerStatsRef.current.activeSakYant,
+            damageModifiers: playerStatsRef.current.damageModifiers,
+            ritualBuff: playerStatsRef.current.ritualBuff,
+            ...overrides
+        };
+    };
+
+    const broadcastOnlineStats = (overrides: Partial<FighterStats> = {}) => {
+        if (gameMode !== GameMode.PVP_ONLINE) return;
+
+        sendData({
+            type: 'STATS_UPDATE',
+            stats: getLocalOnlineStatsSnapshot(overrides),
+            move: playerActionRef.current
+        });
+    };
+
     const applyPlayerOnHitEffects = (damage: number) => {
         setComboCount(c => c + 1);
 
@@ -1245,14 +1272,23 @@ const App: React.FC = () => {
             }
         }
         else if (data.type === 'STATS_UPDATE') {
-            const newStats = {
-                ...opponentStatsRef.current,
+            const incomingStats = data.stats || {
                 currentHealth: data.health!,
                 stamina: data.stamina!,
                 activeSakYant: data.sakYant
             };
+
+            const newStats = {
+                ...opponentStatsRef.current,
+                ...incomingStats
+            };
             opponentStatsRef.current = newStats;
             setOpponentStats(newStats);
+
+            if (data.move) {
+                setOpponentAction(data.move);
+                cpuActionRef.current = data.move;
+            }
         }
         else if (data.type === 'HIT_CONFIRM') {
             playSound(data.isBlocked ? 'block' : 'damage');
@@ -1298,11 +1334,9 @@ const App: React.FC = () => {
                 addFloatingText(`-${(damage * defenseMult).toFixed(0)}`, playerPositionRef.current, "red");
             }
 
-            sendData({
-                type: 'STATS_UPDATE',
-                health: newHp,
-                stamina: playerStatsRef.current.stamina,
-                sakYant: pYant
+            broadcastOnlineStats({
+                currentHealth: newHp,
+                activeSakYant: pYant
             });
 
             if (newHp <= 0) {
@@ -1322,13 +1356,14 @@ const App: React.FC = () => {
     };
 
     useEffect(() => {
-        if (gameMode === GameMode.PVP_ONLINE && gameState === GameState.FIGHTING) {
+        if (gameMode === GameMode.PVP_ONLINE && (gameState === GameState.FIGHTING || gameState === GameState.RITUAL)) {
             const interval = setInterval(() => {
                 sendData({
                     type: 'POSITION',
                     position: playerPositionRef.current.toArray() as [number, number, number],
                     rotation: [0, 0, 0]
                 });
+                broadcastOnlineStats();
             }, 100);
             return () => clearInterval(interval);
         }
@@ -1404,6 +1439,7 @@ const App: React.FC = () => {
             setPlayerAction(MoveType.IDLE);
             if (gameMode === GameMode.PVP_ONLINE) {
                 sendData({ type: 'MOVE', move: MoveType.IDLE });
+                broadcastOnlineStats();
             }
             return;
         }
@@ -1433,12 +1469,7 @@ const App: React.FC = () => {
         });
 
         if (gameMode === GameMode.PVP_ONLINE) {
-            sendData({
-                type: 'STATS_UPDATE',
-                health: playerStatsRef.current.currentHealth,
-                stamina: nextStamina,
-                sakYant: playerStatsRef.current.activeSakYant
-            });
+            broadcastOnlineStats();
         }
 
         if (moveType === MoveType.BLOCK) return;

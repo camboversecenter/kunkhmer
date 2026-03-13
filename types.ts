@@ -271,6 +271,7 @@ export interface LootReward {
 export interface PeerData {
     type: 'MOVE' | 'STATS_UPDATE' | 'HIT_CONFIRM' | 'GAME_OVER' | 'POSITION' | 'HANDSHAKE';
     move?: MoveType;
+    stats?: Partial<FighterStats>;
     health?: number;
     stamina?: number;
     sakYant?: any;
