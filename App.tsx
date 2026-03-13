@@ -56,7 +56,7 @@ import {
     scheduleOptionalAssetDownloads,
     shiftGraphicsPreset
 } from './services/performanceService';
-import { Sword, Trophy, Book, ChevronLeft, Lock, Check, Globe, User, Copy, Wifi, WifiOff, Volume2, VolumeX, AlertCircle, Activity, Glasses, Home, Mic, Monitor, HelpCircle, Eye, EyeOff, Zap, MessageSquare, Map, Star, Settings, Shield, Move, Coins, Crown, ArrowUp, ChevronRight, Flame, Music } from 'lucide-react';
+import { Sword, Trophy, Book, ChevronLeft, Lock, Check, Globe, User, Copy, Wifi, WifiOff, Volume2, VolumeX, AlertCircle, Glasses, Home, Mic, Monitor, HelpCircle, Eye, EyeOff, Zap, MessageSquare, Map, Star, Settings, Shield, Move, Coins, Crown, ArrowUp, ChevronRight, Flame, Music } from 'lucide-react';
 
 const SCENERY_THEMES: SceneryTheme[] = [
     {
@@ -1951,13 +1951,6 @@ const App: React.FC = () => {
                 </XR>
             </Canvas>
 
-            <PerformanceBadge
-                graphicsMode={graphicsMode}
-                performanceProfile={performanceProfile}
-                fps={fpsEstimate}
-                assetStatus={assetDownloadStatus}
-            />
-
             {/* --- UI LAYERS --- */}
 
             {/* 1. NOTIFICATIONS */}
@@ -2120,8 +2113,8 @@ const App: React.FC = () => {
                         </div>
                     </div>
 
-                    {/* Top Right Menu */}
-                    <div className="absolute top-4 right-4 flex gap-2 pointer-events-auto">
+                    {/* Top Center Menu */}
+                    <div className="absolute top-4 left-1/2 z-20 flex max-w-[calc(100vw-2rem)] -translate-x-1/2 flex-wrap justify-center gap-2 rounded-full border border-white/10 bg-black/35 px-3 py-2 shadow-xl backdrop-blur-md pointer-events-auto">
                         <button onClick={handleToggleAudio} className="p-2 bg-black/40 rounded-full backdrop-blur text-white hover:bg-black/60">
                             {isAudioOn ? <Volume2 size={20} /> : <VolumeX size={20} />}
                         </button>
