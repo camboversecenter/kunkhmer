@@ -1941,7 +1941,7 @@ const App: React.FC = () => {
 
             {/* 2. GAME HUD */}
             {gameState === GameState.FIGHTING && (
-                <div className="absolute inset-0 z-10 pointer-events-none flex flex-col justify-between px-2 pb-2 pt-16 md:p-6">
+                <div className="absolute inset-0 z-10 pointer-events-none flex flex-col justify-between px-2 pb-2 pt-20 md:pt-24 md:px-8">
                     {/* Health Bars */}
                     <div className="flex justify-between items-start w-full max-w-5xl mx-auto gap-4">
                         {/* Player Health */}
