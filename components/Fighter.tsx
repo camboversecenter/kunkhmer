@@ -1,19 +1,136 @@
 
 import React, { useRef, useEffect, useMemo } from 'react';
-import { useFrame } from '@react-three/fiber';
+import { useFrame, useLoader } from '@react-three/fiber';
 import { Group, Vector3, Mesh, MeshStandardMaterial, MeshBasicMaterial, MathUtils, AdditiveBlending, DoubleSide } from 'three';
 import { Sparkles, Billboard, Torus, Icosahedron, Ring, Text, useGLTF } from '@react-three/drei';
 import { useXR } from '@react-three/xr';
-import { MoveType, SakYantType, RitualBuff, GameState } from '../types';
+import { VRMLoaderPlugin, VRMUtils } from '@pixiv/three-vrm';
+import gsap from 'gsap';
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { clone as cloneSkeleton } from 'three/examples/jsm/utils/SkeletonUtils.js';
+import { DevicePerformanceProfile, GameState, MoveType, RitualBuff, SakYantType } from '../types';
 import { SAK_YANT_DB, skinBase, skinFlushed, shortsMaterial } from '../constants';
 
-// --- CUSTOM MODEL COMPONENT ---
-const CustomFighterModel = ({ url }: { url: string }) => {
+const applyHumanMaterialTuning = (
+    root: Group,
+    detail: DevicePerformanceProfile['characterDetail'],
+    shadowsEnabled: boolean,
+    hideCoreBody: boolean
+) => {
+    root.traverse((child: any) => {
+        if (!child.isMesh) return;
+
+        if (hideCoreBody) {
+            const name = child.name.toLowerCase();
+            if (name.includes('head') || name.includes('torso') || name.includes('chest') || name.includes('neck') || name.includes('spine')) {
+                child.visible = false;
+                return;
+            }
+        }
+
+        child.castShadow = shadowsEnabled;
+        child.receiveShadow = shadowsEnabled;
+        child.frustumCulled = false;
+
+        const materials = Array.isArray(child.material) ? child.material : [child.material];
+        materials.filter(Boolean).forEach((material: any) => {
+            if ('envMapIntensity' in material) {
+                material.envMapIntensity = detail === 'high' ? 1.25 : 0.9;
+            }
+            if ('roughness' in material && typeof material.roughness === 'number') {
+                material.roughness = Math.max(detail === 'high' ? 0.22 : 0.35, material.roughness);
+            }
+            if ('metalness' in material && typeof material.metalness === 'number') {
+                material.metalness = Math.min(0.15, material.metalness);
+            }
+            material.needsUpdate = true;
+        });
+    });
+};
+
+const GLTFFighterModel = ({
+    url,
+    detail,
+    shadowsEnabled,
+    hideCoreBody = false
+}: {
+    url: string;
+    detail: DevicePerformanceProfile['characterDetail'];
+    shadowsEnabled: boolean;
+    hideCoreBody?: boolean;
+}) => {
     const { scene } = useGLTF(url);
     // clone scene to avoid sharing instances if multiple fighters use it
     const clone = useMemo(() => scene.clone(), [scene]);
 
-    return <primitive object={clone} scale={1.2} position={[0, 0, 0]} rotation={[0, Math.PI, 0]} />;
+    useEffect(() => {
+        applyHumanMaterialTuning(clone, detail, shadowsEnabled, hideCoreBody);
+    }, [clone, detail, shadowsEnabled, hideCoreBody]);
+
+    return (
+        <primitive
+            object={clone}
+            scale={detail === 'high' ? 1.25 : 1.18}
+            position={[0, 0, 0]}
+            rotation={[0, Math.PI, 0]}
+        />
+    );
+};
+
+const VRMFighterModel = ({
+    url,
+    detail,
+    shadowsEnabled,
+    hideCoreBody = false
+}: {
+    url: string;
+    detail: DevicePerformanceProfile['characterDetail'];
+    shadowsEnabled: boolean;
+    hideCoreBody?: boolean;
+}) => {
+    const gltf = useLoader(GLTFLoader, url, loader => {
+        loader.register((parser: any) => new VRMLoaderPlugin(parser));
+    }) as any;
+
+    useEffect(() => {
+        if (gltf.userData.__vrmPrepared) return;
+        gltf.userData.__vrmPrepared = true;
+
+        if (gltf.userData.vrm) {
+            VRMUtils.rotateVRM0(gltf.userData.vrm);
+            VRMUtils.removeUnnecessaryVertices(gltf.scene);
+            VRMUtils.removeUnnecessaryJoints(gltf.scene);
+        }
+    }, [gltf]);
+
+    const clone = useMemo(() => cloneSkeleton(gltf.scene), [gltf.scene]);
+
+    useEffect(() => {
+        applyHumanMaterialTuning(clone, detail, shadowsEnabled, hideCoreBody);
+    }, [clone, detail, shadowsEnabled, hideCoreBody]);
+
+    return (
+        <primitive
+            object={clone}
+            scale={detail === 'high' ? 1.15 : 1.08}
+            position={[0, 0, 0]}
+            rotation={[0, Math.PI, 0]}
+        />
+    );
+};
+
+// --- CUSTOM MODEL COMPONENT ---
+const CustomFighterModel = (props: {
+    url: string;
+    detail: DevicePerformanceProfile['characterDetail'];
+    shadowsEnabled: boolean;
+    hideCoreBody?: boolean;
+}) => {
+    if (props.url.toLowerCase().endsWith('.vrm')) {
+        return <VRMFighterModel {...props} />;
+    }
+
+    return <GLTFFighterModel {...props} />;
 };
 
 interface FighterProps {
@@ -30,6 +147,7 @@ interface FighterProps {
     opponentPositionRef?: React.MutableRefObject<Vector3>;
     ritualBuff?: RitualBuff; // New: Spirit Buff data
     gameState: GameState; // Added to control positioning logic
+    performanceProfile: DevicePerformanceProfile;
 }
 
 // Easing functions for snappier animations
@@ -55,33 +173,55 @@ const getMoveColor = (move: MoveType) => {
     }
 };
 
+const scaleParticleCount = (base: number, multiplier: number, minimum: number = 1) => {
+    return Math.max(minimum, Math.round(base * multiplier));
+};
+
 // --- SUB-COMPONENTS ---
 
-const FireVFX = ({ visible }: { visible: boolean }) => {
+const FireVFX = ({
+    visible,
+    particleScale = 1,
+    accentLights = true
+}: {
+    visible: boolean;
+    particleScale?: number;
+    accentLights?: boolean;
+}) => {
     if (!visible) return null;
     return (
         <group>
-            <Sparkles count={15} scale={0.6} size={15} speed={2} opacity={0.8} color="#fbbf24" noise={0.2} />
-            <Sparkles count={10} scale={0.4} size={10} speed={3} opacity={0.6} color="#ef4444" noise={0.5} />
-            <pointLight color="#fbbf24" intensity={3} distance={1} decay={2} />
+            <Sparkles count={scaleParticleCount(15, particleScale, 4)} scale={0.6} size={15} speed={2} opacity={0.8} color="#fbbf24" noise={0.2} />
+            <Sparkles count={scaleParticleCount(10, particleScale, 3)} scale={0.4} size={10} speed={3} opacity={0.6} color="#ef4444" noise={0.5} />
+            {accentLights && <pointLight color="#fbbf24" intensity={3} distance={1} decay={2} />}
         </group>
     )
 }
 
-const UppercutVFX = ({ visible, color }: { visible: boolean, color: string }) => {
+const UppercutVFX = ({
+    visible,
+    color,
+    particleScale = 1,
+    accentLights = true
+}: {
+    visible: boolean;
+    color: string;
+    particleScale?: number;
+    accentLights?: boolean;
+}) => {
     if (!visible) return null;
     return (
         <group>
             {/* Intense rising particles to emphasize upward momentum */}
-            <Sparkles count={25} scale={[0.5, 1.5, 0.5]} size={20} speed={5} opacity={1} color={color} noise={0.1} />
+            <Sparkles count={scaleParticleCount(25, particleScale, 6)} scale={[0.5, 1.5, 0.5]} size={20} speed={5} opacity={1} color={color} noise={0.1} />
             {/* Inner white core for power */}
-            <Sparkles count={10} scale={0.3} size={25} speed={2} opacity={0.8} color="white" />
-            <pointLight color={color} intensity={5} distance={1.5} decay={2} />
+            <Sparkles count={scaleParticleCount(10, particleScale, 3)} scale={0.3} size={25} speed={2} opacity={0.8} color="white" />
+            {accentLights && <pointLight color={color} intensity={5} distance={1.5} decay={2} />}
         </group>
     )
 }
 
-const TauntVFX = () => {
+const TauntVFX = ({ particleScale = 1 }: { particleScale?: number }) => {
     return (
         <group position={[0, 2.1, 0]}>
             <Billboard>
@@ -96,16 +236,22 @@ const TauntVFX = () => {
                     555+
                 </Text>
             </Billboard>
-            <Sparkles count={20} scale={1.5} size={5} speed={3} color="#f472b6" opacity={0.8} noise={1} />
+            <Sparkles count={scaleParticleCount(20, particleScale, 6)} scale={1.5} size={5} speed={3} color="#f472b6" opacity={0.8} noise={1} />
         </group>
     )
 }
 
-const VictoryVFX = () => {
+const VictoryVFX = ({
+    particleScale = 1,
+    accentLights = true
+}: {
+    particleScale?: number;
+    accentLights?: boolean;
+}) => {
     return (
         <group position={[0, 1.0, 0]}>
-            <Sparkles count={50} scale={[2, 4, 2]} size={12} speed={1.5} color="#facc15" opacity={0.8} noise={0.2} />
-            <pointLight color="#facc15" intensity={2} distance={4} decay={2} position={[0, 2, 0]} />
+            <Sparkles count={scaleParticleCount(50, particleScale, 10)} scale={[2, 4, 2]} size={12} speed={1.5} color="#facc15" opacity={0.8} noise={0.2} />
+            {accentLights && <pointLight color="#facc15" intensity={2} distance={4} decay={2} position={[0, 2, 0]} />}
             <Billboard position={[0, 2.5, 0]}>
                 <Text
                     color="#facc15"
@@ -122,7 +268,15 @@ const VictoryVFX = () => {
     )
 }
 
-const KickSlashVFX = ({ visible, color }: { visible: boolean, color: string }) => {
+const KickSlashVFX = ({
+    visible,
+    color,
+    particleScale = 1
+}: {
+    visible: boolean;
+    color: string;
+    particleScale?: number;
+}) => {
     if (!visible) return null;
     return (
         <group rotation={[0, 0, Math.PI / 4]} position={[0, 0.5, 0]}>
@@ -131,12 +285,20 @@ const KickSlashVFX = ({ visible, color }: { visible: boolean, color: string }) =
                 <torusGeometry args={[0.8, 0.05, 16, 100, Math.PI]} />
                 <meshBasicMaterial color={color} transparent opacity={0.6} blending={AdditiveBlending} />
             </mesh>
-            <Sparkles count={15} scale={[2, 2, 2]} size={12} speed={3} color={color} noise={0.5} />
+            <Sparkles count={scaleParticleCount(15, particleScale, 4)} scale={[2, 2, 2]} size={12} speed={3} color={color} noise={0.5} />
         </group>
     )
 }
 
-const KneeImpactVFX = ({ visible, color }: { visible: boolean, color: string }) => {
+const KneeImpactVFX = ({
+    visible,
+    color,
+    particleScale = 1
+}: {
+    visible: boolean;
+    color: string;
+    particleScale?: number;
+}) => {
     if (!visible) return null;
     return (
         <group>
@@ -149,12 +311,18 @@ const KneeImpactVFX = ({ visible, color }: { visible: boolean, color: string }) 
                 <ringGeometry args={[0.3, 0.8, 32]} />
                 <meshBasicMaterial color="white" transparent opacity={0.7} blending={AdditiveBlending} side={DoubleSide} />
             </mesh>
-            <Sparkles count={20} scale={1.5} size={15} speed={4} color={color} noise={0.2} />
+            <Sparkles count={scaleParticleCount(20, particleScale, 5)} scale={1.5} size={15} speed={4} color={color} noise={0.2} />
         </group>
     )
 }
 
-const BlockShieldVFX = () => {
+const BlockShieldVFX = ({
+    particleScale = 1,
+    accentLights = true
+}: {
+    particleScale?: number;
+    accentLights?: boolean;
+}) => {
     const ref = useRef<Group>(null);
     useFrame((state, delta) => {
         if (ref.current) {
@@ -171,21 +339,28 @@ const BlockShieldVFX = () => {
         <group ref={ref} position={[0, 1.2, 0.4]}>
             {/* Main Shield Bubble */}
             <mesh>
-                <sphereGeometry args={[0.6, 16, 16]} />
+                <sphereGeometry args={[0.6, 24, 24]} />
                 <meshBasicMaterial color="#4ade80" transparent opacity={0.4} blending={AdditiveBlending} wireframe />
             </mesh>
             {/* Impact Core */}
             <mesh scale={[0.5, 0.5, 0.5]}>
-                <sphereGeometry args={[0.5, 16, 16]} />
+                <sphereGeometry args={[0.5, 24, 24]} />
                 <meshBasicMaterial color="white" transparent opacity={0.6} blending={AdditiveBlending} />
             </mesh>
             {/* Particles */}
-            <Sparkles count={15} scale={1.2} size={8} speed={5} color="#86efac" />
+            <Sparkles count={scaleParticleCount(20, particleScale, 5)} scale={1.2} size={8} speed={5} color="#86efac" />
+            {accentLights && <pointLight color="#4ade80" intensity={1.2} distance={2} decay={2} />}
         </group>
     );
 };
 
-const SakYantBreakVFX = () => {
+const SakYantBreakVFX = ({
+    particleScale = 1,
+    accentLights = true
+}: {
+    particleScale?: number;
+    accentLights?: boolean;
+}) => {
     const ref = useRef<Group>(null);
     useFrame((state, delta) => {
         if (ref.current) {
@@ -206,15 +381,23 @@ const SakYantBreakVFX = () => {
                     <meshBasicMaterial color="#fff" side={DoubleSide} transparent opacity={1} />
                 </mesh>
             ))}
-            <Sparkles count={20} scale={2} size={10} speed={5} color="white" />
-            <pointLight color="white" intensity={5} distance={3} decay={5} />
+            <Sparkles count={scaleParticleCount(20, particleScale, 5)} scale={2} size={10} speed={5} color="white" />
+            {accentLights && <pointLight color="white" intensity={5} distance={3} decay={5} />}
         </group>
     )
 }
 
 // --- SPECIFIC SAK YANT VFX ---
 
-const HanumanVFX = ({ color, level }: { color: string, level: number }) => {
+const HanumanVFX = ({
+    color,
+    level,
+    particleScale = 1
+}: {
+    color: string;
+    level: number;
+    particleScale?: number;
+}) => {
     // Concept: Wind/Speed - Spinning rings
     const ref = useRef<Group>(null);
     useFrame((state) => {
@@ -232,12 +415,22 @@ const HanumanVFX = ({ color, level }: { color: string, level: number }) => {
             <Torus args={[0.4, 0.01, 16, 32]} rotation={[Math.PI / 2, 0.5, 0]}>
                 <meshBasicMaterial color="white" transparent opacity={0.2} blending={AdditiveBlending} />
             </Torus>
-            <Sparkles count={5 + level * 3} scale={1.2} size={6} speed={2} color={color} />
+            <Sparkles count={scaleParticleCount(5 + level * 3, particleScale, 3)} scale={1.2} size={6} speed={2} color={color} />
         </group>
     );
 };
 
-const GaoYordVFX = ({ color, level }: { color: string, level: number }) => {
+const GaoYordVFX = ({
+    color,
+    level,
+    particleScale = 1,
+    accentLights = true
+}: {
+    color: string;
+    level: number;
+    particleScale?: number;
+    accentLights?: boolean;
+}) => {
     // Concept: Protection/Shield - Geometric Sphere
     const ref = useRef<Mesh>(null);
     useFrame((state) => {
@@ -255,13 +448,21 @@ const GaoYordVFX = ({ color, level }: { color: string, level: number }) => {
                 <meshBasicMaterial color={color} wireframe transparent opacity={0.15 + level * 0.05} blending={AdditiveBlending} />
             </Icosahedron>
             {/* The 9 Spires (simplified as particles floating up) */}
-            <Sparkles count={9} scale={1} size={10} speed={0.4} color={color} opacity={0.8} />
-            <pointLight color={color} intensity={0.5} distance={2} />
+            <Sparkles count={scaleParticleCount(9, particleScale, 4)} scale={1} size={10} speed={0.4} color={color} opacity={0.8} />
+            {accentLights && <pointLight color={color} intensity={0.5} distance={2} />}
         </group>
     );
 };
 
-const TwinTigerVFX = ({ color, level }: { color: string, level: number }) => {
+const TwinTigerVFX = ({
+    color,
+    level,
+    particleScale = 1
+}: {
+    color: string;
+    level: number;
+    particleScale?: number;
+}) => {
     // Concept: Power/Aggression - Ground fire and aggressive particles
     const ringRef = useRef<Mesh>(null);
     useFrame((state) => {
@@ -279,7 +480,7 @@ const TwinTigerVFX = ({ color, level }: { color: string, level: number }) => {
                 <meshBasicMaterial color={color} transparent opacity={0.4} blending={AdditiveBlending} side={DoubleSide} />
             </mesh>
             <Sparkles
-                count={10 + level * 5}
+                count={scaleParticleCount(10 + level * 5, particleScale, 4)}
                 scale={[1, 2, 1]}
                 size={8}
                 speed={4} // Fast speed for aggression
@@ -290,7 +491,15 @@ const TwinTigerVFX = ({ color, level }: { color: string, level: number }) => {
     );
 };
 
-const NagaVFX = ({ color, level }: { color: string, level: number }) => {
+const NagaVFX = ({
+    color,
+    level,
+    particleScale = 1
+}: {
+    color: string;
+    level: number;
+    particleScale?: number;
+}) => {
     // Concept: Water/Regen - Spiral flow
     // We create a spiral of particles using logic or just abstract it with rising bubbles
     const groupRef = useRef<Group>(null);
@@ -314,7 +523,7 @@ const NagaVFX = ({ color, level }: { color: string, level: number }) => {
                 </Ring>
             </group>
             <Sparkles
-                count={15 + level * 5}
+                count={scaleParticleCount(15 + level * 5, particleScale, 5)}
                 scale={[0.8, 2, 0.8]}
                 size={6}
                 speed={0.5} // Slow, calming speed
@@ -325,7 +534,17 @@ const NagaVFX = ({ color, level }: { color: string, level: number }) => {
     );
 };
 
-const SakYantAura = ({ type, level }: { type: SakYantType, level: number }) => {
+const SakYantAura = ({
+    type,
+    level,
+    particleScale = 1,
+    accentLights = true
+}: {
+    type: SakYantType;
+    level: number;
+    particleScale?: number;
+    accentLights?: boolean;
+}) => {
     const data = SAK_YANT_DB[type];
     const color = data.color;
     const groupRef = useRef<Group>(null);
@@ -369,27 +588,27 @@ const SakYantAura = ({ type, level }: { type: SakYantType, level: number }) => {
         }
     });
 
-    const commonLight = (
-        <pointLight position={[0, 1.0, 0]} color={color} intensity={0.5 + (level * 0.2)} distance={2.5} decay={2} />
-    );
+    const commonLight = accentLights
+        ? <pointLight position={[0, 1.0, 0]} color={color} intensity={0.5 + (level * 0.2)} distance={2.5} decay={2} />
+        : null;
 
     let vfx = null;
 
     switch (type) {
         case SakYantType.HANUMAN:
-            vfx = <HanumanVFX color={color} level={level} />;
+            vfx = <HanumanVFX color={color} level={level} particleScale={particleScale} />;
             break;
         case SakYantType.GAO_YORD:
-            vfx = <GaoYordVFX color={color} level={level} />;
+            vfx = <GaoYordVFX color={color} level={level} particleScale={particleScale} accentLights={accentLights} />;
             break;
         case SakYantType.TWIN_TIGER:
-            vfx = <TwinTigerVFX color={color} level={level} />;
+            vfx = <TwinTigerVFX color={color} level={level} particleScale={particleScale} />;
             break;
         case SakYantType.NAGA:
-            vfx = <NagaVFX color={color} level={level} />;
+            vfx = <NagaVFX color={color} level={level} particleScale={particleScale} />;
             break;
         default:
-            vfx = <Sparkles color={color} count={10} scale={1} />;
+            vfx = <Sparkles color={color} count={scaleParticleCount(10, particleScale, 4)} scale={1} />;
     }
 
     return (
@@ -414,33 +633,33 @@ const SakYantAura = ({ type, level }: { type: SakYantType, level: number }) => {
 
 const KramaHeadband = () => {
     return (
-        <group position={[0, 0.09, 0]} rotation={[0.1, 0, 0]}>
+        <group position={[0, 0.12, 0]} rotation={[0.15, 0, 0]}>
             <mesh castShadow>
-                <torusGeometry args={[0.135, 0.028, 8, 32]} rotation={[Math.PI / 2, 0, 0]} />
+                <torusGeometry args={[0.145, 0.03, 16, 64]} rotation={[Math.PI / 2, 0, 0]} />
                 <meshStandardMaterial color="#b91c1c" roughness={0.9} />
             </mesh>
-            {Array.from({ length: 12 }).map((_, i) => (
-                <mesh key={i} rotation={[0, i * (Math.PI / 6), 0]} position={[0, 0, 0]}>
-                    <mesh position={[0, 0, 0.136]} rotation={[0, 0, 0]}>
-                        <boxGeometry args={[0.02, 0.03, 0.005]} />
+            {Array.from({ length: 16 }).map((_, i) => (
+                <mesh key={i} rotation={[0, i * (Math.PI / 8), 0]} position={[0, 0, 0]}>
+                    <mesh position={[0, 0, 0.146]} rotation={[0, 0, 0]}>
+                        <boxGeometry args={[0.02, 0.035, 0.005]} />
                         <meshStandardMaterial color="#f3f4f6" />
                     </mesh>
                 </mesh>
             ))}
-            <group position={[0, -0.04, -0.135]} rotation={[-0.3, 0, 0]}>
+            <group position={[0, -0.04, -0.145]} rotation={[-0.3, 0, 0]}>
                 <mesh>
-                    <sphereGeometry args={[0.035, 32, 32]} />
+                    <sphereGeometry args={[0.04, 32, 32]} />
                     <meshStandardMaterial color="#b91c1c" />
                 </mesh>
-                <group position={[-0.025, -0.1, 0]} rotation={[0, 0, 0.2]}>
+                <group position={[-0.03, -0.12, 0]} rotation={[0, 0, 0.25]}>
                     <mesh>
-                        <boxGeometry args={[0.04, 0.2, 0.01]} />
+                        <boxGeometry args={[0.045, 0.22, 0.012]} />
                         <meshStandardMaterial color="#b91c1c" />
                     </mesh>
                 </group>
-                <group position={[0.025, -0.09, -0.01]} rotation={[0.1, 0, -0.2]}>
+                <group position={[0.03, -0.11, -0.01]} rotation={[0.1, 0, -0.25]}>
                     <mesh>
-                        <boxGeometry args={[0.04, 0.18, 0.01]} />
+                        <boxGeometry args={[0.045, 0.2, 0.012]} />
                         <meshStandardMaterial color="#b91c1c" />
                     </mesh>
                 </group>
@@ -453,28 +672,40 @@ interface RealisticLegProps {
     isAttacking: boolean;
     activeMoveColor: string;
     lowerLegRef?: React.RefObject<Group | null>;
+    detailSegments: number;
+    minorSegments: number;
+    particleScale: number;
+    accentLights: boolean;
 }
 
-const RealisticLeg = React.memo(({ isAttacking, activeMoveColor, lowerLegRef }: RealisticLegProps) => {
+const RealisticLeg = React.memo(({
+    isAttacking,
+    activeMoveColor,
+    lowerLegRef,
+    detailSegments,
+    minorSegments,
+    particleScale,
+    accentLights
+}: RealisticLegProps) => {
     // Straight leg idle pose
     const baseLowerLegRot = -0.05;
     return (
         <group>
             {/* Hip Joint */}
             <mesh position={[0, 0, 0]}>
-                <sphereGeometry args={[0.105, 24, 24]} />
+                <sphereGeometry args={[0.105, minorSegments, minorSegments]} />
                 <meshPhysicalMaterial {...skinBase} />
             </mesh>
 
             {/* Thigh */}
             <mesh position={[0, -0.22, 0]} castShadow receiveShadow>
-                <capsuleGeometry args={[0.1, 0.4, 8, 32]} />
+                <capsuleGeometry args={[0.1, 0.4, 8, detailSegments]} />
                 <meshPhysicalMaterial {...skinBase} />
             </mesh>
 
             {/* Knee Joint */}
             <mesh position={[0, -0.44, 0.01]} castShadow receiveShadow>
-                <sphereGeometry args={[0.095, 32, 32]} />
+                <sphereGeometry args={[0.095, detailSegments, detailSegments]} />
                 <meshPhysicalMaterial {...skinFlushed} />
             </mesh>
 
@@ -482,18 +713,18 @@ const RealisticLeg = React.memo(({ isAttacking, activeMoveColor, lowerLegRef }: 
             <group ref={lowerLegRef} position={[0, -0.44, 0]} rotation={[baseLowerLegRot, 0, 0]}>
                 {/* Shin */}
                 <mesh position={[0, -0.22, 0]} rotation={[0.02, 0, 0]} castShadow receiveShadow>
-                    <capsuleGeometry args={[0.085, 0.4, 8, 32]} />
+                    <capsuleGeometry args={[0.085, 0.4, 8, detailSegments]} />
                     <meshPhysicalMaterial {...skinBase} />
                 </mesh>
                 {/* Calf Muscle Bump */}
                 <mesh position={[0, -0.15, -0.04]} rotation={[-0.05, 0, 0]} castShadow receiveShadow>
-                    <capsuleGeometry args={[0.08, 0.2, 8, 32]} />
+                    <capsuleGeometry args={[0.08, 0.2, 8, detailSegments]} />
                     <meshPhysicalMaterial {...skinBase} />
                 </mesh>
 
                 {/* Ankle */}
                 <mesh position={[0, -0.42, 0]}>
-                    <sphereGeometry args={[0.07, 16, 16]} />
+                    <sphereGeometry args={[0.07, minorSegments, minorSegments]} />
                     <meshPhysicalMaterial {...skinBase} />
                 </mesh>
 
@@ -512,7 +743,7 @@ const RealisticLeg = React.memo(({ isAttacking, activeMoveColor, lowerLegRef }: 
 
                 {isAttacking && (
                     <group position={[0, -0.35, 0.08]}>
-                        <FireVFX visible={true} />
+                        <FireVFX visible={true} particleScale={particleScale} accentLights={accentLights} />
                     </group>
                 )}
             </group>
@@ -563,7 +794,8 @@ const Fighter: React.FC<FighterProps> = ({
     positionRef,
     opponentPositionRef,
     ritualBuff,
-    gameState
+    gameState,
+    performanceProfile
 }) => {
     const { isPresenting } = useXR();
     const groupRef = useRef<Group>(null);
@@ -586,6 +818,61 @@ const Fighter: React.FC<FighterProps> = ({
     const sweatParticlesRef = useRef<Group>(null);
     const kneeImpactRef = useRef<Group>(null); // New Ref for imperatively toggling Knee VFX
 
+    // --- GSAP ANIMATION STATE ---
+    const gsapState = useRef({
+        torsoRot: { x: 0, y: 0, z: 0 },
+        torsoPos: { x: 0, y: 0.32, z: 0 },
+        armRPos: { x: -0.24, y: 0.42, z: 0 },
+        armRRot: { x: -Math.PI / 2, y: 0, z: 0 },
+        armLPos: { x: 0.24, y: 0.42, z: 0 },
+        armLRot: { x: -Math.PI / 2, y: 0, z: 0 },
+        legRPos: { x: -0.18, y: 1.0, z: 0 },
+        legRRot: { x: 0, y: 0, z: 0 },
+        legLPos: { x: 0.18, y: 1.0, z: 0 },
+        legLRot: { x: 0, y: 0, z: 0 },
+        kneeFlexR: 0,
+        kneeFlexL: 0,
+        forearmRRot: { x: -1.8, y: 0, z: 0 },
+        forearmLRot: { x: -1.8, y: 0, z: 0 }
+    });
+
+    const gsapAnimRef = useRef<gsap.core.Timeline | null>(null);
+    const direction = isFacingRight ? 'right' : 'left';
+
+    useEffect(() => {
+        if (!action || action === MoveType.IDLE) {
+            if (gsapAnimRef.current) gsapAnimRef.current.kill();
+            return;
+        }
+
+        if (gsapAnimRef.current) gsapAnimRef.current.kill();
+
+        const tl = gsap.timeline();
+        gsapAnimRef.current = tl;
+        const dir = direction === 'right' ? 1 : -1;
+
+        if (action === MoveType.PUNCH) {
+            // SNAP PUNCH - Fast extension, slight overshoot, rapid return
+            tl.to(gsapState.current.torsoRot, { duration: 0.1, y: 0.5 * dir, x: 0.1, ease: "power2.in" })
+              .to(gsapState.current.armRPos, { duration: 0.12, z: 0.85, x: -0.1, y: 0.45, ease: "expo.out" }, 0.08)
+              .to(gsapState.current.armRRot, { duration: 0.1, x: -1.6, y: -0.6 * dir, z: -1.2 * dir, ease: "expo.out" }, 0.08)
+              .to(gsapState.current.forearmRRot, { duration: 0.1, z: -1.5 * dir, ease: "expo.out" }, 0.08);
+            
+            tl.to(gsapState.current.armRPos, { duration: 0.2, z: 0, x: -0.24, y: 0.42, ease: "power2.out" })
+              .to(gsapState.current.torsoRot, { duration: 0.25, y: 0, x: 0, ease: "power2.out" }, ">-0.1");
+        } else if (action === MoveType.KICK) {
+            // SNAP ROUNDHOUSE KICK - Powerful pivot and extension
+            tl.to(gsapState.current.legRPos, { duration: 0.15, y: 1.25, z: 0.3, kneeFlexR: 1.8, ease: "back.in(1.2)" })
+              .to(gsapState.current.torsoRot, { duration: 0.15, y: -1.6 * dir, x: 0.2, ease: "expo.out" }, ">")
+              .to(gsapState.current.legRPos, { duration: 0.15, x: 0.75 * dir, y: 1.5, z: 0.45, kneeFlexR: 0, ease: "expo.out" }, ">-0.05")
+              .to(gsapState.current.legLRot, { duration: 0.15, y: -0.6 * dir, ease: "power2.out" }, "<");
+              
+            tl.to(gsapState.current.legRPos, { duration: 0.35, x: -0.18, y: 1.0, z: 0, ease: "power2.inOut" })
+              .to(gsapState.current.torsoRot, { duration: 0.3, y: 0, ease: "power1.inOut" }, "<")
+              .to(gsapState.current.legLRot, { duration: 0.3, y: 0, ease: "power1.inOut" }, "<");
+        }
+    }, [action, direction]);
+
     const basePosition = useRef(new Vector3(...position));
 
     const timeRef = useRef(0);
@@ -595,23 +882,40 @@ const Fighter: React.FC<FighterProps> = ({
     const [showBreakVFX, setShowBreakVFX] = React.useState(false);
 
     // Custom Model State
-    const [hasCustomModel, setHasCustomModel] = React.useState(false);
+    const [customModelUrl, setCustomModelUrl] = React.useState<string | null>(null);
+    const particleScale = performanceProfile.particleMultiplier;
+    const accentLights = performanceProfile.enableAccentLights;
+    const detailSegments = performanceProfile.characterDetail === 'high' ? 32 : performanceProfile.characterDetail === 'medium' ? 24 : 16;
+    const minorSegments = performanceProfile.characterDetail === 'high' ? 24 : performanceProfile.characterDetail === 'medium' ? 16 : 12;
+    const showMicroDetail = performanceProfile.characterDetail !== 'low';
 
     useEffect(() => {
-        // Check if custom model exists
-        setHasCustomModel(false);
-        fetch('/assets/models/fighter.glb', { method: 'HEAD' })
-            .then(res => {
-                const type = res.headers.get('content-type');
-                // Ensure it exists AND is not HTML (which implies 404 fallback in SPA)
-                if (res.ok && type && !type.includes('text/html')) {
-                    setHasCustomModel(true);
-                } else {
-                    setHasCustomModel(false);
+        let cancelled = false;
+        setCustomModelUrl(null);
+
+        const findBestModel = async () => {
+            for (const url of performanceProfile.customModelUrls) {
+                try {
+                    const res = await fetch(url, { method: 'HEAD', cache: 'force-cache' });
+                    const type = res.headers.get('content-type');
+                    if (res.ok && type && !type.includes('text/html')) {
+                        if (!cancelled) setCustomModelUrl(url);
+                        return;
+                    }
+                } catch {
+                    continue;
                 }
-            })
-            .catch(() => setHasCustomModel(false));
-    }, []);
+            }
+        };
+
+        if (performanceProfile.customModelUrls.length > 0) {
+            void findBestModel();
+        }
+
+        return () => {
+            cancelled = true;
+        };
+    }, [performanceProfile.customModelUrls]);
 
     useEffect(() => {
         // Logic: If we had integrity before, and now it's 0 (or we lost it), trigger break
@@ -1295,6 +1599,27 @@ const Fighter: React.FC<FighterProps> = ({
             if (sweatParticlesRef.current) sweatParticlesRef.current.visible = false;
         }
 
+        // --- GSAP OVERRIDES FOR COMBAT SNAPPING ---
+        if (action && action !== MoveType.IDLE) {
+            const gs = gsapState.current;
+            if (action === MoveType.PUNCH) {
+                targetTorsoRot.y = gs.torsoRot.y;
+                targetTorsoRot.x = gs.torsoRot.x;
+                targetArmRPos = { ...gs.armRPos };
+                targetArmRRot = { ...gs.armRRot };
+                targetForearmRRot = { ...gs.forearmRRot };
+                speed = 1.0; // Faster interpolation during GSAP actions
+            } else if (action === MoveType.KICK) {
+                targetLegRPos = { ...gs.legRPos };
+                targetLegRRot = { ...gs.legRRot };
+                targetTorsoRot.y = gs.torsoRot.y;
+                targetTorsoRot.x = gs.torsoRot.x;
+                targetLegLRot.y = gs.legLRot.y;
+                targetKneeFlexR = gs.kneeFlexR;
+                speed = 0.8;
+            }
+        }
+
         // Apply Position Lerp (Only if NOT player controlled - Player uses physics above)
         // AND Only if not in Ritual mode (Ritual mode sets position via camera or static)
         if (action !== MoveType.KNOCKOUT && !isPlayer && gameState !== GameState.RITUAL) {
@@ -1362,17 +1687,19 @@ const Fighter: React.FC<FighterProps> = ({
             {/* SPIRIT BUFF GLOW */}
             {ritualBuff?.isActive && (
                 <group position={[0, 1, 0]}>
-                    <Sparkles count={40} scale={2.5} size={6} speed={2} color="#facc15" opacity={0.8} />
-                    <pointLight color="#facc15" intensity={2} distance={3} />
+                    <Sparkles count={scaleParticleCount(40, particleScale, 10)} scale={2.5} size={6} speed={2} color="#facc15" opacity={0.8} />
+                    {accentLights && <pointLight color="#facc15" intensity={2} distance={3} />}
                 </group>
             )}
 
             {/* --- VFX GROUP --- */}
-            {sakYant && sakYant.currentIntegrity > 0 && <SakYantAura type={sakYant.type} level={sakYant.level} />}
-            {showBreakVFX && <SakYantBreakVFX />}
-            {action === MoveType.TAUNT && <TauntVFX />}
-            {action === MoveType.BLOCK_HIT && <BlockShieldVFX />}
-            {action === MoveType.VICTORY_POSE && <VictoryVFX />}
+            {sakYant && sakYant.currentIntegrity > 0 && (
+                <SakYantAura type={sakYant.type} level={sakYant.level} particleScale={particleScale} accentLights={accentLights} />
+            )}
+            {showBreakVFX && <SakYantBreakVFX particleScale={particleScale} accentLights={accentLights} />}
+            {action === MoveType.TAUNT && <TauntVFX particleScale={particleScale} />}
+            {action === MoveType.BLOCK_HIT && <BlockShieldVFX particleScale={particleScale} accentLights={accentLights} />}
+            {action === MoveType.VICTORY_POSE && <VictoryVFX particleScale={particleScale} accentLights={accentLights} />}
 
             <group ref={hitFlashRef} visible={false} position={[0, 1.3, 0.5]}>
                 <mesh>
@@ -1392,7 +1719,7 @@ const Fighter: React.FC<FighterProps> = ({
             </group>
 
             <group ref={sweatParticlesRef} position={[0, 1.5, 0]} visible={false}>
-                <Sparkles count={40} scale={3} size={4} speed={5} opacity={0.6} color="#bae6fd" noise={10} />
+                <Sparkles count={scaleParticleCount(40, particleScale, 8)} scale={3} size={4} speed={5} opacity={0.6} color="#bae6fd" noise={10} />
             </group>
 
             <group ref={punchEffectRef} position={[-0.25, 1.45, 0.6]} visible={false}>
@@ -1400,20 +1727,30 @@ const Fighter: React.FC<FighterProps> = ({
                     <ringGeometry args={[0.1, 0.25, 32]} />
                     <meshBasicMaterial color="#60a5fa" transparent opacity={0.5} side={2} />
                 </mesh>
-                <Sparkles count={20} scale={0.8} size={6} speed={4} color="#bfdbfe" noise={0.5} />
+                <Sparkles count={scaleParticleCount(20, particleScale, 5)} scale={0.8} size={6} speed={4} color="#bfdbfe" noise={0.5} />
             </group>
 
             {comboCount > 0 && (
                 <group position={[0, 1, 0]}>
-                    <Sparkles count={comboCount * 10} scale={1.5 + comboIntensity} color={comboCount > 3 ? "orange" : "white"} speed={1 + comboIntensity} />
+                    <Sparkles
+                        count={scaleParticleCount(comboCount * 10, particleScale, Math.min(comboCount * 2, 4))}
+                        scale={1.5 + comboIntensity}
+                        color={comboCount > 3 ? "orange" : "white"}
+                        speed={1 + comboIntensity}
+                    />
                 </group>
             )}
 
             {/* --- BODY CONTAINER FOR INDEPENDENT ROTATION --- */}
             <group ref={bodyRef}>
-                {hasCustomModel ? (
+                {customModelUrl ? (
                     <React.Suspense fallback={null}>
-                        <CustomFighterModel url="/assets/models/fighter.glb" />
+                        <CustomFighterModel
+                            url={customModelUrl}
+                            detail={performanceProfile.characterDetail}
+                            shadowsEnabled={performanceProfile.enableShadows}
+                            hideCoreBody={isPlayer && (isFirstPerson || isPresenting)}
+                        />
                     </React.Suspense>
                 ) : (
                     <>
@@ -1423,7 +1760,7 @@ const Fighter: React.FC<FighterProps> = ({
                             {!(isPlayer && (isFirstPerson || isPresenting)) && (
                                 <group>
                                     <mesh castShadow receiveShadow>
-                                        <sphereGeometry args={[0.125, 32, 32]} />
+                                        <sphereGeometry args={[0.125, detailSegments, detailSegments]} />
                                         <meshPhysicalMaterial {...skinBase} emissive={ritualBuff?.isActive ? "#facc15" : "#000"} emissiveIntensity={ritualBuff?.isActive ? 0.2 : 0} />
                                     </mesh>
                                     <mesh position={[0, -0.06, 0.03]}>
@@ -1434,6 +1771,26 @@ const Fighter: React.FC<FighterProps> = ({
                                         <coneGeometry args={[0.015, 0.05, 4, 16]} />
                                         <meshPhysicalMaterial {...skinFlushed} />
                                     </mesh>
+                                    {showMicroDetail && (
+                                        <>
+                                            <mesh position={[0.078, 0.005, 0.01]}>
+                                                <sphereGeometry args={[0.018, minorSegments, minorSegments]} />
+                                                <meshPhysicalMaterial {...skinBase} />
+                                            </mesh>
+                                            <mesh position={[-0.078, 0.005, 0.01]}>
+                                                <sphereGeometry args={[0.018, minorSegments, minorSegments]} />
+                                                <meshPhysicalMaterial {...skinBase} />
+                                            </mesh>
+                                            <mesh position={[0.04, 0.045, 0.115]} rotation={[0.05, 0, -0.15]}>
+                                                <boxGeometry args={[0.05, 0.01, 0.01]} />
+                                                <meshStandardMaterial color="#3f2a1f" roughness={1} />
+                                            </mesh>
+                                            <mesh position={[-0.04, 0.045, 0.115]} rotation={[0.05, 0, 0.15]}>
+                                                <boxGeometry args={[0.05, 0.01, 0.01]} />
+                                                <meshStandardMaterial color="#3f2a1f" roughness={1} />
+                                            </mesh>
+                                        </>
+                                    )}
                                     <KramaHeadband />
                                 </group>
                             )}
@@ -1443,20 +1800,55 @@ const Fighter: React.FC<FighterProps> = ({
                             {/* Hide torso in First Person View or VR, but keep arms visible */}
                             {isBodyVisible && !isFirstPerson && (
                                 <group>
-                                    <mesh position={[0, 0.32, 0]} castShadow receiveShadow>
-                                        <cylinderGeometry args={[0.24, 0.18, 0.35, 32]} />
-                                        <meshPhysicalMaterial {...skinBase} emissive={ritualBuff?.isActive ? "#facc15" : "#000"} emissiveIntensity={ritualBuff?.isActive ? 0.2 : 0} />
-                                    </mesh>
+                                    {/* Realistic Torso - segmented for better bending */}
+                                    <group position={[0, 0.32, 0]}>
+                                        <mesh position={[0, 0, 0]} castShadow receiveShadow>
+                                            <capsuleGeometry args={[0.22, 0.35, 8, detailSegments]} />
+                                            <meshPhysicalMaterial {...skinBase} emissive={ritualBuff?.isActive ? "#facc15" : "#000"} emissiveIntensity={ritualBuff?.isActive ? 0.2 : 0} />
+                                        </mesh>
+                                        {/* Pectoral/Chest definition */}
+                                        <mesh position={[0.11, 0.1, 0.1]} rotation={[0.2, 0, 0]} castShadow>
+                                            <sphereGeometry args={[0.12, minorSegments, minorSegments, 0, Math.PI * 2, 0, Math.PI / 2]} />
+                                            <meshPhysicalMaterial {...skinBase} />
+                                        </mesh>
+                                        <mesh position={[-0.11, 0.1, 0.1]} rotation={[0.2, 0, 0]} castShadow>
+                                            <sphereGeometry args={[0.12, minorSegments, minorSegments, 0, Math.PI * 2, 0, Math.PI / 2]} />
+                                            <meshPhysicalMaterial {...skinBase} />
+                                        </mesh>
+                                        {showMicroDetail && (
+                                            <>
+                                                <mesh position={[0, 0.28, 0]} castShadow receiveShadow>
+                                                    <capsuleGeometry args={[0.055, 0.12, 4, minorSegments]} />
+                                                    <meshPhysicalMaterial {...skinBase} />
+                                                </mesh>
+                                                <mesh position={[0.09, 0.19, 0.02]} rotation={[0.15, 0, 0.4]} castShadow>
+                                                    <capsuleGeometry args={[0.03, 0.12, 4, minorSegments]} />
+                                                    <meshPhysicalMaterial {...skinBase} />
+                                                </mesh>
+                                                <mesh position={[-0.09, 0.19, 0.02]} rotation={[0.15, 0, -0.4]} castShadow>
+                                                    <capsuleGeometry args={[0.03, 0.12, 4, minorSegments]} />
+                                                    <meshPhysicalMaterial {...skinBase} />
+                                                </mesh>
+                                                {[-0.06, 0, 0.06].map((x, index) => (
+                                                    <mesh key={index} position={[x, -0.03, 0.14]}>
+                                                        <boxGeometry args={[0.025, 0.16, 0.015]} />
+                                                        <meshStandardMaterial color="#c89c82" roughness={0.95} transparent opacity={0.85} />
+                                                    </mesh>
+                                                ))}
+                                            </>
+                                        )}
+                                    </group>
+                                    
                                     <mesh position={[0.24, 0.42, 0]} castShadow receiveShadow>
-                                        <sphereGeometry args={[0.11, 32, 32]} />
+                                        <sphereGeometry args={[0.12, detailSegments, detailSegments]} />
                                         <meshPhysicalMaterial {...skinBase} emissive={ritualBuff?.isActive ? "#facc15" : "#000"} emissiveIntensity={ritualBuff?.isActive ? 0.2 : 0} />
                                     </mesh>
                                     <mesh position={[-0.24, 0.42, 0]} castShadow receiveShadow>
-                                        <sphereGeometry args={[0.11, 32, 32]} />
+                                        <sphereGeometry args={[0.12, detailSegments, detailSegments]} />
                                         <meshPhysicalMaterial {...skinBase} emissive={ritualBuff?.isActive ? "#facc15" : "#000"} emissiveIntensity={ritualBuff?.isActive ? 0.2 : 0} />
                                     </mesh>
-                                    <mesh position={[0, 0.05, 0]} castShadow receiveShadow>
-                                        <cylinderGeometry args={[0.17, 0.16, 0.35, 32]} />
+                                    <mesh position={[0, -0.05, 0]} castShadow receiveShadow>
+                                        <capsuleGeometry args={[0.17, 0.3, 8, detailSegments]} />
                                         <meshPhysicalMaterial {...skinBase} emissive={ritualBuff?.isActive ? "#facc15" : "#000"} emissiveIntensity={ritualBuff?.isActive ? 0.2 : 0} />
                                     </mesh>
                                     {sakYant && sakYant.currentIntegrity > 0 && <SakYantTattoo type={sakYant.type} level={sakYant.level} />}
@@ -1466,18 +1858,24 @@ const Fighter: React.FC<FighterProps> = ({
                             {/* Arms - Always Visible */}
                             <group ref={armLRef} position={[0.24, 0.35, 0]}>
                                 <mesh position={[0, -0.2, 0]} rotation={[0, 0, -0.1]} castShadow receiveShadow>
-                                    <capsuleGeometry args={[0.08, 0.35, 8, 32]} />
+                                    <capsuleGeometry args={[0.08, 0.35, 8, detailSegments]} />
                                     <meshPhysicalMaterial {...skinBase} emissive={ritualBuff?.isActive ? "#facc15" : "#000"} emissiveIntensity={ritualBuff?.isActive ? 0.5 : 0} />
                                 </mesh>
                                 <mesh position={[0, -0.42, 0]} castShadow>
-                                    <sphereGeometry args={[0.075, 24, 24]} />
+                                    <sphereGeometry args={[0.075, minorSegments, minorSegments]} />
                                     <meshPhysicalMaterial {...skinFlushed} />
                                 </mesh>
                                 <group ref={forearmLRef} position={[0, -0.42, 0]}>
                                     <mesh position={[0, -0.22, 0]} castShadow>
-                                        <capsuleGeometry args={[0.07, 0.35, 8, 32]} />
+                                        <capsuleGeometry args={[0.07, 0.35, 8, detailSegments]} />
                                         <meshPhysicalMaterial {...skinBase} emissive={ritualBuff?.isActive ? "#facc15" : "#000"} emissiveIntensity={ritualBuff?.isActive ? 0.5 : 0} />
                                     </mesh>
+                                    {showMicroDetail && (
+                                        <mesh position={[0, -0.36, 0.02]} rotation={[0.1, 0, 0]}>
+                                            <torusGeometry args={[0.075, 0.012, 8, 18]} />
+                                            <meshStandardMaterial color="#f3f4f6" roughness={0.95} />
+                                        </mesh>
+                                    )}
                                     <mesh position={[0, -0.44, 0]} rotation={[0.2, 0, 0]}>
                                         <boxGeometry args={[0.15, 0.18, 0.18]} />
                                         <meshStandardMaterial color={color} roughness={0.4} />
@@ -1487,18 +1885,24 @@ const Fighter: React.FC<FighterProps> = ({
 
                             <group ref={armRRef} position={[-0.24, 0.35, 0]}>
                                 <mesh position={[0, -0.2, 0]} rotation={[0, 0, 0.1]} castShadow receiveShadow>
-                                    <capsuleGeometry args={[0.08, 0.35, 8, 32]} />
+                                    <capsuleGeometry args={[0.08, 0.35, 8, detailSegments]} />
                                     <meshPhysicalMaterial {...skinBase} emissive={ritualBuff?.isActive ? "#facc15" : "#000"} emissiveIntensity={ritualBuff?.isActive ? 0.5 : 0} />
                                 </mesh>
                                 <mesh position={[0, -0.42, 0]} castShadow>
-                                    <sphereGeometry args={[0.075, 24, 24]} />
+                                    <sphereGeometry args={[0.075, minorSegments, minorSegments]} />
                                     <meshPhysicalMaterial {...skinFlushed} />
                                 </mesh>
                                 <group ref={forearmRRef} position={[0, -0.42, 0]}>
                                     <mesh position={[0, -0.22, 0]} castShadow>
-                                        <capsuleGeometry args={[0.07, 0.35, 8, 32]} />
+                                        <capsuleGeometry args={[0.07, 0.35, 8, detailSegments]} />
                                         <meshPhysicalMaterial {...skinBase} emissive={ritualBuff?.isActive ? "#facc15" : "#000"} emissiveIntensity={ritualBuff?.isActive ? 0.5 : 0} />
                                     </mesh>
+                                    {showMicroDetail && (
+                                        <mesh position={[0, -0.36, 0.02]} rotation={[0.1, 0, 0]}>
+                                            <torusGeometry args={[0.075, 0.012, 8, 18]} />
+                                            <meshStandardMaterial color="#f3f4f6" roughness={0.95} />
+                                        </mesh>
+                                    )}
                                     <mesh position={[0, -0.44, 0]} rotation={[0.2, 0, 0]}>
                                         <boxGeometry args={[0.15, 0.18, 0.18]} />
                                         <meshStandardMaterial color={color} roughness={0.4} />
@@ -1507,12 +1911,12 @@ const Fighter: React.FC<FighterProps> = ({
                                     {/* VFX Attachment Point on Hand */}
                                     {(action === MoveType.PUNCH || action === MoveType.ELBOW) && (
                                         <group position={[0, -0.4, 0]} userData={{ isFire: true }} visible={false}>
-                                            <FireVFX visible={true} />
+                                            <FireVFX visible={true} particleScale={particleScale} accentLights={accentLights} />
                                         </group>
                                     )}
                                     {(action === MoveType.UPPERCUT) && (
                                         <group position={[0, -0.4, 0]} userData={{ isUppercut: true }} visible={false}>
-                                            <UppercutVFX visible={true} color={color} />
+                                            <UppercutVFX visible={true} color={color} particleScale={particleScale} accentLights={accentLights} />
                                         </group>
                                     )}
                                 </group>
@@ -1544,7 +1948,14 @@ const Fighter: React.FC<FighterProps> = ({
                         {isBodyVisible && (
                             <>
                                 <group ref={legLRef} position={[0.15, 0.8, 0]}>
-                                    <RealisticLeg isAttacking={false} activeMoveColor={activeMoveColor} />
+                                    <RealisticLeg
+                                        isAttacking={false}
+                                        activeMoveColor={activeMoveColor}
+                                        detailSegments={detailSegments}
+                                        minorSegments={minorSegments}
+                                        particleScale={particleScale}
+                                        accentLights={accentLights}
+                                    />
                                 </group>
 
                                 <group ref={legRRef} position={[-0.15, 0.8, 0]}>
@@ -1552,16 +1963,20 @@ const Fighter: React.FC<FighterProps> = ({
                                         isAttacking={action === MoveType.KICK || action === MoveType.KNEE}
                                         activeMoveColor={activeMoveColor}
                                         lowerLegRef={lowerLegRRef}
+                                        detailSegments={detailSegments}
+                                        minorSegments={minorSegments}
+                                        particleScale={particleScale}
+                                        accentLights={accentLights}
                                     />
                                     {/* Leg VFX Attachments */}
                                     {action === MoveType.KICK && (
                                         <group position={[0, -0.6, 0]}>
-                                            <KickSlashVFX visible={true} color={activeMoveColor} />
+                                            <KickSlashVFX visible={true} color={activeMoveColor} particleScale={particleScale} />
                                         </group>
                                     )}
                                     {action === MoveType.KNEE && (
                                         <group ref={kneeImpactRef} position={[0, -0.4, 0.2]} visible={false}>
-                                            <KneeImpactVFX visible={true} color={activeMoveColor} />
+                                            <KneeImpactVFX visible={true} color={activeMoveColor} particleScale={particleScale} />
                                         </group>
                                     )}
                                 </group>

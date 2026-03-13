@@ -3,10 +3,11 @@ import React, { useMemo, useRef, useLayoutEffect } from 'react';
 import { useFrame } from '@react-three/fiber';
 import { BackSide, Object3D, InstancedMesh, Color } from 'three';
 import { Stars, Sparkles, Cloud, Environment } from '@react-three/drei';
-import { SceneryTheme } from '../types';
+import { DevicePerformanceProfile, SceneryTheme } from '../types';
 
 interface SceneryProps {
     theme: SceneryTheme;
+    performanceProfile: DevicePerformanceProfile;
 }
 
 interface TempleTowerProps {
@@ -294,9 +295,9 @@ const MarketStall = ({ position, side, color }: { position: [number, number, num
 }
 
 // --- ANIMATED CROWD COMPONENT ---
-const Crowd: React.FC = () => {
+const Crowd: React.FC<{ density: number; castShadowEnabled: boolean }> = ({ density, castShadowEnabled }) => {
     const meshRef = useRef<InstancedMesh>(null);
-    const count = 350;
+    const count = Math.max(60, Math.round(350 * density));
     const dummy = useMemo(() => new Object3D(), []);
 
     // Generate random positions for audience
@@ -310,7 +311,7 @@ const Crowd: React.FC = () => {
             speed: 0.5 + Math.random() * 2,
             phase: Math.random() * Math.PI * 2
         }));
-    }, []);
+    }, [count]);
 
     useLayoutEffect(() => {
         if (meshRef.current) {
@@ -370,7 +371,7 @@ const Crowd: React.FC = () => {
             </group>
 
             {/* Audience Instanced Mesh */}
-            <instancedMesh ref={meshRef} args={[undefined, undefined, count]} castShadow>
+            <instancedMesh ref={meshRef} args={[undefined, undefined, count]} castShadow={castShadowEnabled}>
                 <capsuleGeometry args={[0.25, 0.6, 4, 8]} />
                 <meshStandardMaterial />
             </instancedMesh>
@@ -378,18 +379,20 @@ const Crowd: React.FC = () => {
     );
 };
 
-const Scenery: React.FC<SceneryProps> = ({ theme }) => {
+const Scenery: React.FC<SceneryProps> = ({ theme, performanceProfile }) => {
     const palmTrees = useMemo(() => {
-        return [...Array(60)].map(() => ({
+        const treeCount = Math.max(16, Math.round(60 * performanceProfile.sceneryDensity));
+        return [...Array(treeCount)].map(() => ({
             x: Math.cos(Math.random() * Math.PI) * (25 + Math.random() * 50) * (Math.random() > 0.5 ? 1 : -1),
             z: -15 - Math.random() * 60,
             scale: 0.9 + Math.random() * 1.5,
             rotation: Math.random() * Math.PI
         }));
-    }, []);
+    }, [performanceProfile.sceneryDensity]);
 
     const ricePaddies = useMemo(() => {
         const fields: { x: number, z: number, width: number, length: number }[] = [];
+        const step = performanceProfile.sceneryDensity < 0.6 ? 2 : 1;
         for (let x = -75; x <= 75; x += 25) {
             for (let z = -100; z <= -20; z += 20) {
                 if (Math.abs(x) > 10 || z < -40) {
@@ -397,18 +400,19 @@ const Scenery: React.FC<SceneryProps> = ({ theme }) => {
                 }
             }
         }
-        return fields;
-    }, []);
+        return fields.filter((_, index) => index % step === 0);
+    }, [performanceProfile.sceneryDensity]);
 
     const birds = useMemo(() => {
         if (theme.id === 'NIGHT' || theme.id === 'MARKET') return [];
-        return [...Array(15)].map(() => ({
+        const birdCount = Math.max(4, Math.round(15 * performanceProfile.sceneryDensity));
+        return [...Array(birdCount)].map(() => ({
             x: (Math.random() - 0.5) * 100,
             y: 20 + Math.random() * 15,
             z: -50 - Math.random() * 40,
             speed: 0.5 + Math.random() * 0.5
         }));
-    }, [theme.id]);
+    }, [performanceProfile.sceneryDensity, theme.id]);
 
     const templeMaterialProps = {
         color: theme.templeColor,
@@ -426,12 +430,14 @@ const Scenery: React.FC<SceneryProps> = ({ theme }) => {
                 position={[-30, 40, 20]}
                 intensity={isMarket || theme.id === 'NIGHT' ? 0.3 : 1.5}
                 color={theme.sunColor}
-                castShadow
-                shadow-mapSize={[2048, 2048]}
+                castShadow={performanceProfile.enableShadows}
+                shadow-mapSize={[performanceProfile.shadowMapSize, performanceProfile.shadowMapSize]}
                 shadow-bias={-0.0005}
             />
 
-            <Environment preset={theme.environmentPreset as any} />
+            {performanceProfile.enableEnvironment && (
+                <Environment preset={theme.environmentPreset as any} />
+            )}
 
             <mesh position={[0, 0, 0]} scale={[200, 200, 200]}>
                 <sphereGeometry args={[1, 32, 32, 0, Math.PI * 2, 0, Math.PI * 0.5]} />
@@ -440,16 +446,39 @@ const Scenery: React.FC<SceneryProps> = ({ theme }) => {
 
             <AngkorSilhouette color={theme.id === 'SUNSET' ? '#572810' : theme.templeColor} />
 
-            {theme.id !== 'NIGHT' && !isMarket && (
+            {theme.id !== 'NIGHT' && !isMarket && performanceProfile.cloudSegments > 0 && (
                 <group position={[0, 35, -60]}>
-                    <Cloud opacity={0.5} speed={0.1} width={50} depth={10} segments={20} color={theme.fogColor} />
+                    <Cloud
+                        opacity={0.5}
+                        speed={0.1}
+                        width={50}
+                        depth={10}
+                        segments={performanceProfile.cloudSegments}
+                        color={theme.fogColor}
+                    />
                 </group>
             )}
 
             {(theme.id === 'NIGHT' || isMarket) && (
                 <>
-                    <Stars radius={95} depth={50} count={4000} factor={4} saturation={0} fade speed={0.5} />
-                    <Sparkles count={150} scale={40} size={5} speed={0.3} opacity={0.8} color="#fef3c7" position={[0, 2, -20]} />
+                    <Stars
+                        radius={95}
+                        depth={50}
+                        count={performanceProfile.starCount}
+                        factor={4}
+                        saturation={0}
+                        fade
+                        speed={0.5}
+                    />
+                    <Sparkles
+                        count={Math.max(24, Math.round(150 * performanceProfile.particleMultiplier))}
+                        scale={40}
+                        size={5}
+                        speed={0.3}
+                        opacity={0.8}
+                        color="#fef3c7"
+                        position={[0, 2, -20]}
+                    />
                 </>
             )}
 
@@ -482,7 +511,7 @@ const Scenery: React.FC<SceneryProps> = ({ theme }) => {
                 </group>
             )}
 
-            <Crowd />
+            <Crowd density={performanceProfile.crowdDensity} castShadowEnabled={performanceProfile.enableShadows} />
 
             {/* === PROCEDURAL TEMPLE COMPLEX === */}
             {!isMarket && (
@@ -502,18 +531,18 @@ const Scenery: React.FC<SceneryProps> = ({ theme }) => {
 
             {palmTrees.map((tree, idx) => (
                 <group key={idx} position={[tree.x, -1, tree.z]} scale={[tree.scale, tree.scale, tree.scale]} rotation={[0, tree.rotation, 0]}>
-                    <mesh position={[0, 2, 0]} rotation={[0.1, 0, 0]} castShadow>
+                    <mesh position={[0, 2, 0]} rotation={[0.1, 0, 0]} castShadow={performanceProfile.enableShadows}>
                         <cylinderGeometry args={[0.15, 0.28, 4, 7]} />
                         <meshStandardMaterial color="#3f2e20" roughness={1} />
                     </mesh>
-                    <mesh position={[0, 4.5, 0.4]} rotation={[0.2, 0, 0]} castShadow>
+                    <mesh position={[0, 4.5, 0.4]} rotation={[0.2, 0, 0]} castShadow={performanceProfile.enableShadows}>
                         <cylinderGeometry args={[0.1, 0.15, 2, 6]} />
                         <meshStandardMaterial color="#3f2e20" roughness={1} />
                     </mesh>
                     <group position={[0, 5.5, 0.6]}>
                         {[0, 1, 2, 3, 4, 5, 6, 7].map((r) => (
                             <group key={r} rotation={[0.25, r * (Math.PI * 2 / 8), 0]}>
-                                <mesh position={[0, 0.2, 1.4]} rotation={[0.5, 0, 0]} castShadow>
+                                <mesh position={[0, 0.2, 1.4]} rotation={[0.5, 0, 0]} castShadow={performanceProfile.enableShadows}>
                                     <cylinderGeometry args={[0.01, 0.1, 4]} />
                                     <meshStandardMaterial color={theme.id === 'NIGHT' || isMarket ? '#0f172a' : '#15803d'} roughness={0.8} side={2} />
                                 </mesh>

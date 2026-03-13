@@ -188,6 +188,65 @@ export interface SceneryTheme {
   environmentPreset: 'sunset' | 'park' | 'night' | 'city' | 'forest' | 'studio';
 }
 
+export type GraphicsPreset = 'LOW' | 'BALANCED' | 'HIGH' | 'ULTRA';
+export type GraphicsMode = 'AUTO' | GraphicsPreset;
+export type GpuTier = 'UNKNOWN' | 'LOW' | 'MID' | 'HIGH';
+export type NetworkClass = 'OFFLINE' | 'SLOW' | 'STANDARD' | 'FAST';
+export type AssetDownloadPlan = 'ESSENTIAL' | 'BALANCED' | 'FULL';
+
+export interface RendererTelemetry {
+  renderer: string;
+  vendor: string;
+  maxTextureSize: number | null;
+  anisotropy: number;
+}
+
+export interface DeviceCapabilities {
+  cpuCores: number;
+  memoryGB: number | null;
+  devicePixelRatio: number;
+  screenPixels: number;
+  isMobile: boolean;
+  networkClass: NetworkClass;
+  saveData: boolean;
+  renderer: string;
+  vendor: string;
+  gpuTier: GpuTier;
+  recommendedPreset: GraphicsPreset;
+  maxTextureSize: number | null;
+  anisotropy: number;
+}
+
+export interface DevicePerformanceProfile extends DeviceCapabilities {
+  preset: GraphicsPreset;
+  dpr: [number, number];
+  antialias: boolean;
+  enableShadows: boolean;
+  shadowMapSize: number;
+  enablePostProcessing: boolean;
+  bloomIntensity: number;
+  vignetteDarkness: number;
+  enableEnvironment: boolean;
+  sceneryDensity: number;
+  crowdDensity: number;
+  particleMultiplier: number;
+  cloudSegments: number;
+  starCount: number;
+  characterDetail: 'low' | 'medium' | 'high';
+  enableAccentLights: boolean;
+  assetPlan: AssetDownloadPlan;
+  customModelUrls: string[];
+}
+
+export interface AssetDownloadStatus {
+  phase: 'idle' | 'checking' | 'downloading' | 'ready';
+  plan: AssetDownloadPlan;
+  requested: number;
+  available: number;
+  completed: number;
+  message: string;
+}
+
 export interface UserProfile {
     name: string;
     email: string;

@@ -1,0 +1,10 @@
+{
+  "name": "Kun Khmer Fight 3D",
+  "short_name": "Kun Khmer 3D",
+  "description": "A 3D Kun Khmer fighting game experience in your browser.",
+  "start_url": "/",
+  "display": "fullscreen",
+  "background_color": "#1a1a1a",
+  "theme_color": "#1a1a1a",
+  "orientation": "any"
+}

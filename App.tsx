@@ -5,7 +5,31 @@ import { CameraShake, OrbitControls, Text, Float } from '@react-three/drei';
 import { EffectComposer, Bloom, Vignette } from '@react-three/postprocessing';
 import { XR, VRButton, useXR, Controllers, useController, useXREvent } from '@react-three/xr';
 import { Vector3, Group, MathUtils, PerspectiveCamera, MeshBasicMaterial } from 'three';
-import { GameState, MoveType, FighterStats, Difficulty, SceneryTheme, SakYantType, PlayerInventory, GameMode, UserProfile, LeaderboardEntry, OnlineState, PeerData, LeaderboardPeriod, PlayerProfile, LootReward, HeroId, RitualBuff } from './types';
+import {
+    AssetDownloadStatus,
+    DeviceCapabilities,
+    DevicePerformanceProfile,
+    Difficulty,
+    FighterStats,
+    GameMode,
+    GameState,
+    GraphicsMode,
+    GraphicsPreset,
+    HeroId,
+    LeaderboardEntry,
+    LeaderboardPeriod,
+    LootReward,
+    MoveType,
+    OnlineState,
+    PeerData,
+    PlayerInventory,
+    PlayerProfile,
+    RendererTelemetry,
+    RitualBuff,
+    SakYantType,
+    SceneryTheme,
+    UserProfile
+} from './types';
 import { MOVES, SAK_YANT_DB, FIGHTER_CONFIG, ADVENTURE_OPPONENTS, GAME_ECONOMY, INITIAL_INVENTORY, HEROES_DB } from './constants';
 import Fighter from './components/Fighter';
 import Arena from './components/Arena';
@@ -22,6 +46,16 @@ import RitualOverlay from './components/RitualOverlay';
 import { playSound, startBackgroundMusic, stopBackgroundMusic, toggleMute } from './services/audioService';
 import { initializeGoogleAuth, renderGoogleButton, getLeaderboard, submitScore, cancelAuth, saveUserData, loadUserData } from './services/authService';
 import { initializePeer, connectToPeer, sendData, sendToPeer, destroyPeer } from './services/peerService';
+import {
+    buildPerformanceProfile,
+    DEFAULT_ASSET_DOWNLOAD_STATUS,
+    DEFAULT_DEVICE_CAPABILITIES,
+    detectDeviceCapabilities,
+    hydrateCapabilitiesWithRenderer,
+    readRendererTelemetry,
+    scheduleOptionalAssetDownloads,
+    shiftGraphicsPreset
+} from './services/performanceService';
 import { Sword, Trophy, Book, ChevronLeft, Lock, Check, Globe, User, Copy, Wifi, WifiOff, Volume2, VolumeX, AlertCircle, Activity, Glasses, Home, Mic, Monitor, HelpCircle, Eye, EyeOff, Zap, MessageSquare, Map, Star, Settings, Shield, Move, Coins, Crown, ArrowUp, ChevronRight, Flame, Music } from 'lucide-react';
 
 const SCENERY_THEMES: SceneryTheme[] = [
@@ -98,16 +132,30 @@ const INITIAL_PROFILE: PlayerProfile = {
 
 // --- VR COMPONENTS ---
 
-const VRControllerHandler = ({ onAction }: { onAction: (move: MoveType) => void }) => {
-    const { player } = useXR();
+const VRControllerHandler = ({
+    onAction,
+    playerPositionRef
+}: {
+    onAction: (move: MoveType) => void,
+    playerPositionRef: React.MutableRefObject<Vector3>
+}) => {
+    const { player, isPresenting } = useXR();
+    const leftController = useController('left');
+    const rightController = useController('right');
 
+    // Trigger attacks
     useXREvent('selectstart', (e) => {
-        // Punch on Trigger (Select)
-        onAction(MoveType.PUNCH);
+        if (!isPresenting) return;
+        // Right hand usually handles primary attacks
+        if (e.pointer_id === rightController?.id) {
+            onAction(MoveType.PUNCH);
+        } else {
+            onAction(MoveType.KICK);
+        }
     });
 
+    // Grip for blocking
     useXREvent('squeezestart', (e) => {
-        // Block on Grip (Squeeze)
         onAction(MoveType.BLOCK);
     });
 
@@ -115,15 +163,46 @@ const VRControllerHandler = ({ onAction }: { onAction: (move: MoveType) => void 
         onAction(MoveType.IDLE);
     });
 
-    // For complex mapping like A/B buttons, we can use the useController hook in useFrame
-    const leftController = useController('left');
-    const rightController = useController('right');
+    useFrame((state, delta) => {
+        if (!isPresenting || !player) return;
 
-    useFrame(() => {
+        // --- LOCOMOTION (Left Thumbstick) ---
+        if (leftController?.inputSource?.gamepad) {
+            const axes = leftController.inputSource.gamepad.axes;
+            // Standard mapping: 2 = Horizontal, 3 = Vertical
+            const axisX = axes[2] || 0;
+            const axisY = axes[3] || 0;
+
+            if (Math.abs(axisX) > 0.1 || Math.abs(axisY) > 0.1) {
+                const speed = 2.5 * delta;
+                
+                // Get camera direction for forward movement
+                const direction = new Vector3();
+                state.camera.getWorldDirection(direction);
+                direction.y = 0;
+                direction.normalize();
+
+                const side = new Vector3().crossVectors(state.camera.up, direction).normalize();
+
+                // Move the XR Rig
+                player.position.add(direction.multiplyScalar(-axisY * speed));
+                player.position.add(side.multiplyScalar(axisX * speed));
+
+                // Boundary check
+                player.position.x = MathUtils.clamp(player.position.x, -5, 5);
+                player.position.z = MathUtils.clamp(player.position.z, -5, 5);
+            }
+        }
+
+        // --- POSITION SYNC ---
+        // Keep the game logic's player position in sync with XR rig
+        playerPositionRef.current.copy(player.position);
+
+        // --- ADDITIONAL BUTTON MAPPING ---
         if (rightController?.inputSource?.gamepad) {
             const gamepad = rightController.inputSource.gamepad;
-            // Many VR gamepads: Button 4 = A/X, Button 5 = B/Y
-            if (gamepad.buttons[4]?.pressed) onAction(MoveType.KICK);
+            // Button 4 = A/X, Button 5 = B/Y
+            if (gamepad.buttons[4]?.pressed) onAction(MoveType.UPPERCUT);
             if (gamepad.buttons[5]?.pressed) onAction(MoveType.KNEE);
         }
     });
@@ -333,7 +412,7 @@ const ViewController = ({
             }
 
             const forwardDir = new Vector3().subVectors(opponentPosition, playerPosition).normalize();
-            headPos.add(forwardDir.multiplyScalar(0.5));
+            headPos.add(forwardDir.multiplyScalar(0.1));
 
             const isMoving = inputState.current.has('KeyW') || inputState.current.has('KeyA') || inputState.current.has('KeyS') || inputState.current.has('KeyD');
             if (isMoving && playerAction !== MoveType.ROLL) {
@@ -432,14 +511,81 @@ const ViewController = ({
     return null;
 }
 
-const SceneEffects = ({ isFirstPerson }: { isFirstPerson: boolean }) => {
+const GRAPHICS_MODE_ORDER: GraphicsMode[] = ['AUTO', 'LOW', 'BALANCED', 'HIGH', 'ULTRA'];
+
+const RuntimePerformanceBridge = ({
+    onTelemetry,
+    onFpsSample
+}: {
+    onTelemetry: (telemetry: RendererTelemetry) => void;
+    onFpsSample: (fps: number) => void;
+}) => {
+    const { gl } = useThree();
+    const telemetryReported = useRef(false);
+    const fpsWindowRef = useRef({ time: 0, frames: 0 });
+
+    useEffect(() => {
+        if (telemetryReported.current) return;
+        telemetryReported.current = true;
+        onTelemetry(readRendererTelemetry(gl));
+    }, [gl, onTelemetry]);
+
+    useFrame((_, delta) => {
+        fpsWindowRef.current.time += delta;
+        fpsWindowRef.current.frames += 1;
+
+        if (fpsWindowRef.current.time >= 1.2) {
+            onFpsSample(fpsWindowRef.current.frames / fpsWindowRef.current.time);
+            fpsWindowRef.current = { time: 0, frames: 0 };
+        }
+    });
+
+    return null;
+};
+
+const SceneEffects = ({ performanceProfile }: { performanceProfile: DevicePerformanceProfile }) => {
+    if (!performanceProfile.enablePostProcessing) return null;
+
     return (
         <EffectComposer disableNormalPass>
-            <Bloom luminanceThreshold={1} mipmapBlur intensity={0.5} />
-            <Vignette eskil={false} offset={0.1} darkness={1.1} />
+            <Bloom luminanceThreshold={1} mipmapBlur intensity={performanceProfile.bloomIntensity} />
+            <Vignette eskil={false} offset={0.1} darkness={performanceProfile.vignetteDarkness} />
         </EffectComposer>
     )
 }
+
+const PerformanceBadge = ({
+    graphicsMode,
+    performanceProfile,
+    fps,
+    assetStatus
+}: {
+    graphicsMode: GraphicsMode;
+    performanceProfile: DevicePerformanceProfile;
+    fps: number | null;
+    assetStatus: AssetDownloadStatus;
+}) => {
+    const fpsLabel = fps ? `${Math.round(fps)} FPS` : 'Profiling';
+    const modeLabel = graphicsMode === 'AUTO' ? `AUTO ${performanceProfile.preset}` : `MANUAL ${performanceProfile.preset}`;
+
+    return (
+        <div className="absolute top-4 left-4 z-20 pointer-events-none">
+            <div className="rounded-xl border border-cyan-400/25 bg-black/55 px-3 py-2 text-white shadow-2xl backdrop-blur-md">
+                <div className="flex items-center gap-2 text-xs font-black tracking-wide">
+                    <Activity size={14} className="text-cyan-300" />
+                    <span>{modeLabel}</span>
+                    <span className="text-cyan-300">{fpsLabel}</span>
+                </div>
+                <div className="mt-1 text-[10px] text-gray-300">
+                    {performanceProfile.gpuTier} GPU · {performanceProfile.cpuCores} threads · {performanceProfile.networkClass}
+                </div>
+                <div className="text-[10px] text-gray-400">
+                    {assetStatus.plan} assets · {assetStatus.message}
+                </div>
+            </div>
+        </div>
+    );
+};
 
 // --- MAIN APP COMPONENT ---
 
@@ -482,6 +628,11 @@ const App: React.FC = () => {
     const [showHowToPlay, setShowHowToPlay] = useState(false);
     const [notification, setNotification] = useState<string | null>(null);
     const [isFirstPerson, setIsFirstPerson] = useState(false);
+    const [deviceCapabilities, setDeviceCapabilities] = useState<DeviceCapabilities>(DEFAULT_DEVICE_CAPABILITIES);
+    const [graphicsMode, setGraphicsMode] = useState<GraphicsMode>('AUTO');
+    const [autoGraphicsPreset, setAutoGraphicsPreset] = useState<GraphicsPreset>(DEFAULT_DEVICE_CAPABILITIES.recommendedPreset);
+    const [fpsEstimate, setFpsEstimate] = useState<number | null>(null);
+    const [assetDownloadStatus, setAssetDownloadStatus] = useState<AssetDownloadStatus>(DEFAULT_ASSET_DOWNLOAD_STATUS);
 
     // Refs for real-time logic
     const gameStateRef = useRef(gameState);
@@ -497,6 +648,14 @@ const App: React.FC = () => {
     const comboCountRef = useRef(0);
 
     const playerActionRef = useRef<MoveType>(MoveType.IDLE);
+    const deviceCapabilitiesRef = useRef(deviceCapabilities);
+    const adaptivePresetCooldownRef = useRef(0);
+
+    const activeGraphicsPreset = graphicsMode === 'AUTO' ? autoGraphicsPreset : graphicsMode;
+    const performanceProfile = useMemo(
+        () => buildPerformanceProfile(deviceCapabilities, activeGraphicsPreset),
+        [activeGraphicsPreset, deviceCapabilities]
+    );
 
     // Sync refs with state
     useEffect(() => {
@@ -519,6 +678,69 @@ const App: React.FC = () => {
     useEffect(() => {
         opponentStatsRef.current = opponentStats;
     }, [opponentStats]);
+
+    useEffect(() => {
+        deviceCapabilitiesRef.current = deviceCapabilities;
+    }, [deviceCapabilities]);
+
+    useEffect(() => {
+        const detected = detectDeviceCapabilities();
+        setDeviceCapabilities(detected);
+        setAutoGraphicsPreset(detected.recommendedPreset);
+    }, []);
+
+    useEffect(() => {
+        if (graphicsMode === 'AUTO') {
+            setAutoGraphicsPreset(deviceCapabilities.recommendedPreset);
+        }
+    }, [deviceCapabilities.recommendedPreset, graphicsMode]);
+
+    useEffect(() => {
+        if (graphicsMode !== 'AUTO' || fpsEstimate == null) return;
+
+        const now = Date.now();
+        if (now - adaptivePresetCooldownRef.current < 6000) return;
+
+        const presetOrder: GraphicsPreset[] = ['LOW', 'BALANCED', 'HIGH', 'ULTRA'];
+        const currentIndex = presetOrder.indexOf(autoGraphicsPreset);
+        const recommendedIndex = presetOrder.indexOf(deviceCapabilities.recommendedPreset);
+
+        if (fpsEstimate < 42 && currentIndex > 0) {
+            adaptivePresetCooldownRef.current = now;
+            setAutoGraphicsPreset(prev => shiftGraphicsPreset(prev, -1));
+            return;
+        }
+
+        if (fpsEstimate > 57 && currentIndex < recommendedIndex) {
+            adaptivePresetCooldownRef.current = now;
+            setAutoGraphicsPreset(prev => shiftGraphicsPreset(prev, 1));
+        }
+    }, [autoGraphicsPreset, deviceCapabilities.recommendedPreset, fpsEstimate, graphicsMode]);
+
+    useEffect(() => {
+        return scheduleOptionalAssetDownloads(performanceProfile, setAssetDownloadStatus);
+    }, [performanceProfile.assetPlan, performanceProfile.customModelUrls]);
+
+    const handleRendererTelemetry = (telemetry: RendererTelemetry) => {
+        const next = hydrateCapabilitiesWithRenderer(deviceCapabilitiesRef.current, telemetry);
+        setDeviceCapabilities(next);
+        if (graphicsMode === 'AUTO') {
+            setAutoGraphicsPreset(next.recommendedPreset);
+        }
+    };
+
+    const cycleGraphicsMode = () => {
+        setGraphicsMode(prev => {
+            const index = GRAPHICS_MODE_ORDER.indexOf(prev);
+            const next = GRAPHICS_MODE_ORDER[(index + 1) % GRAPHICS_MODE_ORDER.length];
+            if (next === 'AUTO') {
+                setAutoGraphicsPreset(deviceCapabilitiesRef.current.recommendedPreset);
+            }
+            setNotification(`Graphics: ${next === 'AUTO' ? `AUTO ${deviceCapabilitiesRef.current.recommendedPreset}` : next}`);
+            setTimeout(() => setNotification(null), 1600);
+            return next;
+        });
+    };
 
     const handleToggleAudio = () => {
         const muted = toggleMute();
@@ -1559,12 +1781,25 @@ const App: React.FC = () => {
     }
 
     return (
-        <div className="relative w-full h-full overflow-hidden bg-black select-none">
+        <div className="relative w-full h-[100dvh] overflow-hidden bg-black select-none">
             {/* Removed global VRButton here to avoid duplicate and HTTPS warning */}
             {/* --- 3D SCENE --- */}
-            <Canvas shadows camera={{ position: [0, 2, 6], fov: 50 }} className="z-0">
+            <Canvas
+                shadows={performanceProfile.enableShadows}
+                dpr={performanceProfile.dpr}
+                gl={{
+                    antialias: performanceProfile.antialias,
+                    powerPreference: performanceProfile.preset === 'LOW' ? 'default' : 'high-performance'
+                }}
+                camera={{ position: [0, 2, 6], fov: 50 }}
+                className="z-0"
+            >
                 <XR>
-                    <VRControllerHandler onAction={handlePlayerAction} />
+                    <RuntimePerformanceBridge
+                        onTelemetry={handleRendererTelemetry}
+                        onFpsSample={setFpsEstimate}
+                    />
+                    <VRControllerHandler onAction={handlePlayerAction} playerPositionRef={playerPositionRef} />
                     <VRFloatingHUD playerStats={playerStats} opponentStats={opponentStats} />
 
                     <ViewController
@@ -1578,7 +1813,7 @@ const App: React.FC = () => {
                         gameState={gameState}
                     />
 
-                    <Scenery theme={sceneryTheme} />
+                    <Scenery theme={sceneryTheme} performanceProfile={performanceProfile} />
 
                     {/* PLAYER FIGHTER */}
                     {(gameState === GameState.FIGHTING || gameState === GameState.MENU || gameState === GameState.CHARACTER_SELECT || gameState === GameState.SAK_YANT_MENU || gameState === GameState.VICTORY || gameState === GameState.RITUAL) && (
@@ -1604,6 +1839,7 @@ const App: React.FC = () => {
                             positionRef={playerPositionRef}
                             ritualBuff={playerStats.ritualBuff}
                             gameState={gameState}
+                            performanceProfile={performanceProfile}
                             // In menu modes, pass dummy opponent ref to force facing towards camera if Fighter component supports it
                             opponentPositionRef={
                                 gameState === GameState.FIGHTING || gameState === GameState.VICTORY ? opponentPositionRef :
@@ -1622,20 +1858,28 @@ const App: React.FC = () => {
                             sakYant={opponentStats.activeSakYant}
                             opponentPositionRef={playerPositionRef}
                             gameState={gameState}
+                            performanceProfile={performanceProfile}
                         />
                     )}
 
-                    {gameState === GameState.FIGHTING && <Arena />}
+                    {gameState === GameState.FIGHTING && <Arena performanceProfile={performanceProfile} />}
 
                     {gameState === GameState.FIGHTING && floatingTexts.map(ft => (
                         <FloatingDamage key={ft.id} text={ft.text} position={ft.position} color={ft.color} onComplete={() => setFloatingTexts(prev => prev.filter(p => p.id !== ft.id))} />
                     ))}
 
-                    <SceneEffects isFirstPerson={isFirstPerson} />
+                    <SceneEffects performanceProfile={performanceProfile} />
                     <ambientLight intensity={0.5} />
                     {/* Spotlight for Menu Hero */}
                     {(gameState === GameState.MENU || gameState === GameState.CHARACTER_SELECT || gameState === GameState.SAK_YANT_MENU) && (
-                        <spotLight position={[-2, 4, 3]} intensity={200} angle={0.5} penumbra={1} castShadow color="white" />
+                        <spotLight
+                            position={[-2, 4, 3]}
+                            intensity={200}
+                            angle={0.5}
+                            penumbra={1}
+                            castShadow={performanceProfile.enableShadows}
+                            color="white"
+                        />
                     )}
 
                     {/* AI Controllers */}
@@ -1650,6 +1894,13 @@ const App: React.FC = () => {
                     )}
                 </XR>
             </Canvas>
+
+            <PerformanceBadge
+                graphicsMode={graphicsMode}
+                performanceProfile={performanceProfile}
+                fps={fpsEstimate}
+                assetStatus={assetDownloadStatus}
+            />
 
             {/* --- UI LAYERS --- */}
 
@@ -1751,14 +2002,14 @@ const App: React.FC = () => {
                                     onTouchStart={() => handlePlayerAction(MoveType.PUNCH)}
                                     onMouseDown={() => handlePlayerAction(MoveType.PUNCH)}
                                 >
-                                    <span className="font-bold text-white drop-shadow-md">MAT</span>
+                                    <span className="font-bold text-white drop-shadow-md">{MOVES[MoveType.PUNCH].khmerName}</span>
                                 </button>
                                 <button
                                     className="w-16 h-16 bg-yellow-600/80 rounded-full border-4 border-yellow-400 active:bg-yellow-500 active:scale-95 transition-all shadow-lg flex items-center justify-center mt-[-20px]"
                                     onTouchStart={() => handlePlayerAction(MoveType.KICK)}
                                     onMouseDown={() => handlePlayerAction(MoveType.KICK)}
                                 >
-                                    <span className="font-bold text-white drop-shadow-md">TI</span>
+                                    <span className="font-bold text-white drop-shadow-md">{MOVES[MoveType.KICK].khmerName}</span>
                                 </button>
                             </div>
                             <div className="flex gap-4">
@@ -1774,21 +2025,21 @@ const App: React.FC = () => {
                                     onTouchStart={() => handlePlayerAction(MoveType.UPPERCUT)}
                                     onMouseDown={() => handlePlayerAction(MoveType.UPPERCUT)}
                                 >
-                                    <span className="font-bold text-white text-[10px] drop-shadow-md">UPPER</span>
+                                    <span className="font-bold text-white text-[10px] drop-shadow-md">{MOVES[MoveType.UPPERCUT].khmerName}</span>
                                 </button>
                                 <button
                                     className="w-14 h-14 bg-purple-600/80 rounded-full border-4 border-purple-400 active:bg-purple-500 active:scale-95 transition-all shadow-lg flex items-center justify-center"
                                     onTouchStart={() => handlePlayerAction(MoveType.KNEE)}
                                     onMouseDown={() => handlePlayerAction(MoveType.KNEE)}
                                 >
-                                    <span className="font-bold text-white text-xs drop-shadow-md">KNEE</span>
+                                    <span className="font-bold text-white text-xs drop-shadow-md">{MOVES[MoveType.KNEE].khmerName}</span>
                                 </button>
                                 <button
                                     className="w-14 h-14 bg-red-600/80 rounded-full border-4 border-red-400 active:bg-red-500 active:scale-95 transition-all shadow-lg flex items-center justify-center"
                                     onTouchStart={() => handlePlayerAction(MoveType.ELBOW)}
                                     onMouseDown={() => handlePlayerAction(MoveType.ELBOW)}
                                 >
-                                    <span className="font-bold text-white text-xs drop-shadow-md">ELBOW</span>
+                                    <span className="font-bold text-white text-xs drop-shadow-md">{MOVES[MoveType.ELBOW].khmerName}</span>
                                 </button>
                             </div>
                             <button
@@ -1807,6 +2058,13 @@ const App: React.FC = () => {
                             {isAudioOn ? <Volume2 size={20} /> : <VolumeX size={20} />}
                         </button>
                         <button
+                            onClick={cycleGraphicsMode}
+                            className="p-2 bg-black/40 rounded-full backdrop-blur text-white hover:bg-black/60"
+                            title={`Graphics mode: ${graphicsMode === 'AUTO' ? `AUTO ${performanceProfile.preset}` : graphicsMode}`}
+                        >
+                            <Monitor size={20} />
+                        </button>
+                        <button
                             onClick={() => {
                                 import('./services/audioService').then(mod => {
                                     const theme = mod.toggleMusicTheme();
@@ -1821,21 +2079,27 @@ const App: React.FC = () => {
                         <button onClick={() => setSceneryTheme(t => SCENERY_THEMES[(SCENERY_THEMES.indexOf(t) + 1) % SCENERY_THEMES.length])} className="p-2 bg-black/40 rounded-full backdrop-blur text-white hover:bg-black/60">
                             <Settings size={20} />
                         </button>
-                        <button onClick={() => setIsFirstPerson(!isFirstPerson)} className="p-2 bg-black/40 rounded-full backdrop-blur text-white hover:bg-black/60">
+                        <button onClick={() => setIsFirstPerson(!isFirstPerson)} className="p-2 bg-black/40 rounded-full backdrop-blur text-white hover:bg-black/60" title="First Person View">
                             {isFirstPerson ? <EyeOff size={20} /> : <Eye size={20} />}
                         </button>
+                        <div className="vr-container relative p-2 bg-black/40 rounded-full backdrop-blur text-white hover:bg-black/60 group overflow-hidden flex items-center justify-center">
+                            <VRButton />
+                            <div className="pointer-events-none relative z-0 flex items-center justify-center">
+                                <Glasses size={20} className="text-purple-400 group-hover:scale-110 transition-transform" />
+                            </div>
+                        </div>
                     </div>
                 </div>
             )}
 
             {/* 3. MAIN MENU */}
             {gameState === GameState.MENU && (
-                <div className="absolute inset-0 z-20 flex flex-col md:flex-row font-sans">
-                    {/* Left Half: Transparent to show 3D Hero */}
-                    <div className="w-full md:w-1/2 h-1/2 md:h-full pointer-events-none" />
-
-                    {/* Right Half: UI Panel */}
-                    <div className="w-full md:w-1/2 h-1/2 md:h-full bg-gradient-to-l from-black via-black/95 to-black/80 flex flex-col justify-center p-6 md:p-12 shadow-2xl backdrop-blur-sm border-l border-gray-800">
+                <div className="absolute inset-0 z-20 flex flex-col md:flex-row font-sans h-full">
+                    {/* Left Half: Transparent to show 3D Hero - smaller on mobile to prioritize menu */}
+                    <div className="w-full md:w-1/2 h-1/4 md:h-full pointer-events-none" />
+                    
+                    {/* Right Half: UI Panel - larger on mobile to fill screen */}
+                    <div className="w-full md:w-1/2 h-3/4 md:h-full bg-gradient-to-l from-black via-black/80 to-transparent flex flex-col justify-center p-6 md:p-12 shadow-2xl backdrop-blur-sm border-l border-gray-800/50 overflow-y-auto">
                         <div className="mb-6 md:mb-10 text-center md:text-left">
                             <h1 className="text-5xl md:text-7xl font-black text-transparent bg-clip-text bg-gradient-to-r from-blue-500 to-cyan-300 italic tracking-tighter drop-shadow-lg">
                                 KUN KHMER
@@ -1960,7 +2224,7 @@ const App: React.FC = () => {
                                 {/* Overlay for icon/text since VRButton takes over click/text usually, but we made text transparent in CSS */}
                                 <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-2">
                                     <Glasses size={20} className="text-purple-400 group-hover:scale-110 transition-transform" />
-                                    <span className="text-[10px] font-bold uppercase tracking-wide text-gray-400 group-hover:text-white">VR Mode</span>
+                                    <span className="text-[10px] font-bold uppercase tracking-wide text-gray-400 group-hover:text-white">របៀប VR</span>
                                 </div>
                             </div>
 

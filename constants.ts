@@ -176,19 +176,24 @@ export const FIGHTER_CONFIG = {
 };
 
 export const skinBase = {
-    color: "#e6bc98",
-    roughness: 0.4,
-    metalness: 0.05,
-    clearcoat: 0.05,
-    clearcoatRoughness: 0.2
+    color: "#d2b48c",
+    roughness: 0.5,
+    metalness: 0.0,
+    clearcoat: 0.1,
+    clearcoatRoughness: 0.25,
+    sheen: 0.5,
+    sheenRoughness: 0.5,
+    sheenColor: "#ffecd2"
 };
 
 export const skinFlushed = {
-    color: "#dcb0a0",
-    roughness: 0.4,
-    metalness: 0.05,
-    clearcoat: 0.05,
-    clearcoatRoughness: 0.2
+    color: "#cc9e8e",
+    roughness: 0.45,
+    metalness: 0.0,
+    clearcoat: 0.15,
+    clearcoatRoughness: 0.2,
+    sheen: 0.6,
+    sheenColor: "#ffccd2"
 };
 
 export const shortsMaterial = {

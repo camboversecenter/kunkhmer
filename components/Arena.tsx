@@ -1,8 +1,9 @@
 import React from 'react';
 import { FIGHTER_CONFIG } from '../constants';
 import '../types'; // Import types to ensure global JSX IntrinsicElements augmentation
+import { DevicePerformanceProfile } from '../types';
 
-const Arena: React.FC = () => {
+const Arena: React.FC<{ performanceProfile: DevicePerformanceProfile }> = ({ performanceProfile }) => {
   return (
     <group>
       {/* Floor */}
@@ -19,7 +20,7 @@ const Arena: React.FC = () => {
 
       {/* Posts */}
       {[[-6, -6], [6, -6], [6, 6], [-6, 6]].map((pos, idx) => (
-        <mesh key={idx} position={[pos[0], 1.5, pos[1]]} castShadow>
+        <mesh key={idx} position={[pos[0], 1.5, pos[1]]} castShadow={performanceProfile.enableShadows}>
           <cylinderGeometry args={[0.2, 0.2, 3]} />
           <meshStandardMaterial color={idx % 2 === 0 ? '#ef4444' : '#3b82f6'} metalness={0.5} />
         </mesh>
@@ -57,8 +58,9 @@ const Arena: React.FC = () => {
         position={[0, 10, 0]} 
         angle={0.6} 
         penumbra={0.5} 
-        intensity={1.5} 
-        castShadow 
+        intensity={performanceProfile.preset === 'LOW' ? 0.9 : 1.5} 
+        castShadow={performanceProfile.enableShadows}
+        shadow-mapSize={[performanceProfile.shadowMapSize, performanceProfile.shadowMapSize]}
         shadow-bias={-0.0001}
       />
     </group>
