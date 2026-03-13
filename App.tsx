@@ -210,7 +210,17 @@ const VRControllerHandler = ({
     return null;
 };
 
-const VRFloatingHUD = ({ playerStats, opponentStats }: { playerStats: FighterStats, opponentStats: FighterStats }) => {
+const VRFloatingHUD = ({
+    playerStats,
+    opponentStats,
+    playerColor,
+    opponentColor
+}: {
+    playerStats: FighterStats,
+    opponentStats: FighterStats,
+    playerColor: string,
+    opponentColor: string
+}) => {
     const { isPresenting } = useXR();
     if (!isPresenting) return null;
 
@@ -229,7 +239,7 @@ const VRFloatingHUD = ({ playerStats, opponentStats }: { playerStats: FighterSta
                         </mesh>
                         <mesh position={[-(1 - playerStats.currentHealth / playerStats.maxHealth) / 2, 0, 0.01]}>
                             <planeGeometry args={[playerStats.currentHealth / playerStats.maxHealth, 0.08]} />
-                            <meshBasicMaterial color="#3b82f6" />
+                            <meshBasicMaterial color={playerColor} />
                         </mesh>
                     </group>
 
@@ -247,7 +257,7 @@ const VRFloatingHUD = ({ playerStats, opponentStats }: { playerStats: FighterSta
                         </mesh>
                         <mesh position={[(1 - opponentStats.currentHealth / opponentStats.maxHealth) / 2, 0, 0.01]}>
                             <planeGeometry args={[opponentStats.currentHealth / opponentStats.maxHealth, 0.08]} />
-                            <meshBasicMaterial color="#ef4444" />
+                            <meshBasicMaterial color={opponentColor} />
                         </mesh>
                     </group>
                 </group>
@@ -450,60 +460,13 @@ const ViewController = ({
 
             const center = new Vector3().addVectors(playerPosition, opponentPosition).multiplyScalar(0.5);
 
-            let targetZoom = 8 + camState.current.zoom;
-            let targetY = 3;
-            let targetLookY = 1.2;
-
-            const cpuMove = cpuActionRef?.current || MoveType.IDLE;
-            const isPowerfulCpuMove = [MoveType.KICK, MoveType.KNEE, MoveType.ELBOW, MoveType.UPPERCUT].includes(cpuMove);
-            const isPowerfulPlayerMove = [MoveType.KICK, MoveType.KNEE, MoveType.ELBOW, MoveType.UPPERCUT].includes(playerAction);
-            const isAttacking = playerAction !== MoveType.IDLE && playerAction !== MoveType.BLOCK && playerAction !== MoveType.BLOCK_HIT;
-
-            let lerpSpeed = 3.0;
-
-            if (gameState === GameState.VICTORY) {
-                // Zoom in on winner (assuming player wins for now, logic in endFight handles actions)
-                if (playerAction === MoveType.VICTORY_POSE) {
-                    targetZoom = 4;
-                    targetY = 2;
-                    center.copy(playerPosition);
-                } else {
-                    // Opponent wins
-                    targetZoom = 4;
-                    targetY = 2;
-                    center.copy(opponentPosition);
-                }
-            } else if (isPowerfulCpuMove || isPowerfulPlayerMove) {
-                targetZoom -= 3.5;
-                targetY -= 1.2;
-                lerpSpeed = 5.0;
-            } else if (isAttacking || (cpuMove !== MoveType.IDLE && cpuMove !== MoveType.BLOCK)) {
-                targetZoom -= 1.5;
-                lerpSpeed = 4.0;
-            }
-
-            if (playerPosition.distanceTo(opponentPosition) < 2.0 && gameState !== GameState.VICTORY) {
-                targetZoom -= 1.0;
-            }
-
-            // Fix: Clamp radius to prevent camera looking inside models or getting too close
-            const radius = Math.max(3.0, targetZoom);
+            const radius = Math.max(6.5, 8 + camState.current.zoom);
             const x = center.x + Math.sin(camState.current.azimuth) * radius;
             const z = center.z + Math.cos(camState.current.azimuth) * radius;
+            const targetPos = new Vector3(x, 3, z);
 
-            const targetPos = new Vector3(x, targetY, z);
-
-            camera.position.lerp(targetPos, delta * lerpSpeed);
-
-            let desiredLook = center.clone().setY(targetLookY);
-
-            if (isPowerfulPlayerMove) {
-                desiredLook.lerp(opponentPosition, 0.4);
-            } else if (isPowerfulCpuMove) {
-                desiredLook.lerp(playerPosition, 0.4);
-            }
-
-            lookAtTarget.current.lerp(desiredLook, delta * 6);
+            camera.position.lerp(targetPos, delta * 3);
+            lookAtTarget.current.lerp(center.clone().setY(1.2), delta * 6);
             camera.lookAt(lookAtTarget.current);
         }
     });
@@ -596,6 +559,7 @@ const App: React.FC = () => {
     const [difficulty, setDifficulty] = useState<Difficulty>(Difficulty.MEDIUM);
     const [adventureStage, setAdventureStage] = useState(0);
     const [onlineState, setOnlineState] = useState<OnlineState | null>(null);
+    const [isOnlineHost, setIsOnlineHost] = useState(true);
     const [selectedHero, setSelectedHero] = useState<HeroId>(HeroId.DARA);
     const [previewHero, setPreviewHero] = useState<HeroId | null>(null);
 
@@ -656,6 +620,9 @@ const App: React.FC = () => {
         () => buildPerformanceProfile(deviceCapabilities, activeGraphicsPreset),
         [activeGraphicsPreset, deviceCapabilities]
     );
+    const isBlueCornerLocal = gameMode !== GameMode.PVP_ONLINE || isOnlineHost;
+    const playerCornerColor = isBlueCornerLocal ? FIGHTER_CONFIG.PLAYER_COLOR : FIGHTER_CONFIG.CPU_COLOR;
+    const opponentCornerColor = isBlueCornerLocal ? FIGHTER_CONFIG.CPU_COLOR : FIGHTER_CONFIG.PLAYER_COLOR;
 
     // Sync refs with state
     useEffect(() => {
@@ -1093,12 +1060,12 @@ const App: React.FC = () => {
         setLootReward(null); // Close overlay
     };
 
-    const startFight = () => {
+    const startFight = (modeOverride: GameMode = gameMode, onlineHostOverride: boolean = isOnlineHost) => {
         // Reset Stats
         setPlayerStats({ ...INITIAL_STATS, heroId: selectedHero, damageModifiers: HEROES_DB[selectedHero]?.modifiers || { punch: 1, kick: 1, elbow: 1, knee: 1, speed: 1, defense: 1 } });
 
         // Scale Opponent based on Adventure Mode Stage
-        if (gameMode === GameMode.ADVENTURE) {
+        if (modeOverride === GameMode.ADVENTURE) {
             // Safe access for opponent
             const oppIndex = Math.min(adventureStage, ADVENTURE_OPPONENTS.length - 1);
             const baseOpponent = ADVENTURE_OPPONENTS[oppIndex];
@@ -1118,10 +1085,16 @@ const App: React.FC = () => {
 
         setPlayerAction(MoveType.IDLE);
         setOpponentAction(MoveType.IDLE);
+        cpuActionRef.current = MoveType.IDLE;
         setComboCount(0);
         setFloatingTexts([]);
-        playerPositionRef.current.set(-1.5, 0, 0);
-        opponentPositionRef.current.set(1.5, 0, 0);
+        if (modeOverride === GameMode.PVP_ONLINE && !onlineHostOverride) {
+            playerPositionRef.current.set(1.5, 0, 0);
+            opponentPositionRef.current.set(-1.5, 0, 0);
+        } else {
+            playerPositionRef.current.set(-1.5, 0, 0);
+            opponentPositionRef.current.set(1.5, 0, 0);
+        }
 
         resetPlayerStats();
 
@@ -1202,6 +1175,63 @@ const App: React.FC = () => {
         setFloatingTexts(prev => [...prev, { id: Date.now() + Math.random(), text, position: position.toArray(), color }]);
     };
 
+    const calculatePlayerAttackDamage = (moveType: MoveType) => {
+        const move = MOVES[moveType];
+        const heroData = HEROES_DB[selectedHero];
+        if (!move || !heroData) return null;
+
+        const attributes = heroData.attributes;
+        let damage = move.damage;
+
+        if (moveType === MoveType.PUNCH) damage *= heroData.modifiers.punch;
+        if (moveType === MoveType.UPPERCUT) damage *= (heroData.modifiers.punch * 1.2);
+        if (moveType === MoveType.KICK) damage *= heroData.modifiers.kick;
+        if (moveType === MoveType.ELBOW) damage *= heroData.modifiers.elbow;
+        if (moveType === MoveType.KNEE) damage *= heroData.modifiers.knee;
+
+        damage += (attributes.strength * 0.8);
+
+        const critChance = attributes.technique * 0.015;
+        if (Math.random() < critChance) {
+            damage *= 1.5;
+            addFloatingText("CRIT!", new Vector3(opponentPositionRef.current.x, opponentPositionRef.current.y + 0.5, opponentPositionRef.current.z), "orange");
+        }
+
+        if (playerStatsRef.current.activeSakYant?.type === SakYantType.TWIN_TIGER) {
+            const lvl = playerStatsRef.current.activeSakYant.level;
+            const buff = SAK_YANT_DB[SakYantType.TWIN_TIGER].levels[lvl].effectValue;
+            damage *= buff;
+
+            const newIntegrity = Math.max(0, playerStatsRef.current.activeSakYant.currentIntegrity - 1);
+            updateStats('player', { activeSakYant: { ...playerStatsRef.current.activeSakYant, currentIntegrity: newIntegrity } });
+        }
+
+        if (gameMode === GameMode.ADVENTURE) {
+            const defenseScaling = 1.0 - (adventureStage * 0.03);
+            damage *= defenseScaling;
+        }
+
+        return damage;
+    };
+
+    const applyPlayerOnHitEffects = (damage: number) => {
+        setComboCount(c => c + 1);
+
+        if (playerStatsRef.current.activeSakYant?.type === SakYantType.NAGA) {
+            const lvl = playerStatsRef.current.activeSakYant.level;
+            const lifesteal = SAK_YANT_DB[SakYantType.NAGA].levels[lvl].secondaryEffect || 0;
+            if (Math.random() < 0.5) {
+                const heal = damage * lifesteal;
+                updateStats('player', {
+                    currentHealth: Math.min(playerStatsRef.current.maxHealth, playerStatsRef.current.currentHealth + heal)
+                });
+
+                const newIntegrity = Math.max(0, playerStatsRef.current.activeSakYant.currentIntegrity - 2);
+                updateStats('player', { activeSakYant: { ...playerStatsRef.current.activeSakYant, currentIntegrity: newIntegrity } });
+            }
+        }
+    };
+
     // Re-pasting handlePvpData for safety in XML replacement
     const handlePvpData = (data: PeerData, peerId: string) => {
         if (data.type === 'MOVE') {
@@ -1227,8 +1257,7 @@ const App: React.FC = () => {
         else if (data.type === 'HIT_CONFIRM') {
             playSound(data.isBlocked ? 'block' : 'damage');
             const damage = data.damage || 0;
-
-            let newHp = Math.max(0, playerStatsRef.current.currentHealth - damage);
+            let newHp = playerStatsRef.current.currentHealth;
 
             let defenseMult = playerStatsRef.current.damageModifiers?.defense || 1.0;
 
@@ -1242,7 +1271,7 @@ const App: React.FC = () => {
             }
 
             let pYant = playerStatsRef.current.activeSakYant ? { ...playerStatsRef.current.activeSakYant } : null;
-            if (pYant && pYant.currentIntegrity > 0) {
+            if (!data.isBlocked && pYant && pYant.currentIntegrity > 0) {
                 pYant.currentIntegrity = Math.max(0, pYant.currentIntegrity - damage);
                 if (pYant.currentIntegrity === 0) {
                     setNotification(`YOUR ${SAK_YANT_DB[pYant.type].name} BROKEN!`);
@@ -1255,7 +1284,19 @@ const App: React.FC = () => {
                 activeSakYant: pYant
             });
 
-            addFloatingText(data.isBlocked ? "BLOCKED" : `-${(damage * defenseMult).toFixed(0)}`, playerPositionRef.current, data.isBlocked ? "gray" : "red");
+            if (data.isBlocked) {
+                addFloatingText("BLOCKED", playerPositionRef.current, "gray");
+                setPlayerAction(MoveType.BLOCK_HIT);
+                setTimeout(() => {
+                    if (keysPressed.current.has('Space')) {
+                        setPlayerAction(MoveType.BLOCK);
+                    } else {
+                        setPlayerAction(MoveType.IDLE);
+                    }
+                }, 300);
+            } else {
+                addFloatingText(`-${(damage * defenseMult).toFixed(0)}`, playerPositionRef.current, "red");
+            }
 
             sendData({
                 type: 'STATS_UPDATE',
@@ -1267,7 +1308,7 @@ const App: React.FC = () => {
             if (newHp <= 0) {
                 endFight(false);
                 sendData({ type: 'GAME_OVER', winner: 'OPPONENT' });
-            } else {
+            } else if (!data.isBlocked) {
                 setPlayerAction(MoveType.HIT);
                 setTimeout(() => setPlayerAction(MoveType.IDLE), 400);
             }
@@ -1327,7 +1368,7 @@ const App: React.FC = () => {
             keysPressed.current.delete(e.code);
             if (gameState === GameState.FIGHTING) {
                 if (e.code === 'Space') {
-                    setPlayerAction(MoveType.IDLE);
+                    handlePlayerAction(MoveType.IDLE);
                 }
             }
         };
@@ -1356,12 +1397,21 @@ const App: React.FC = () => {
     };
 
     const handlePlayerAction = (moveType: MoveType) => {
-        // Basic check for dead/stamina
-        if (playerStatsRef.current.currentHealth <= 0 || playerStatsRef.current.stamina <= 0) return;
         // Check if game is actually running
         if (gameStateRef.current !== GameState.FIGHTING) return;
 
-        if (playerAction === MoveType.ROLL) return;
+        if (moveType === MoveType.IDLE) {
+            setPlayerAction(MoveType.IDLE);
+            if (gameMode === GameMode.PVP_ONLINE) {
+                sendData({ type: 'MOVE', move: MoveType.IDLE });
+            }
+            return;
+        }
+
+        // Basic check for dead/stamina
+        if (playerStatsRef.current.currentHealth <= 0 || playerStatsRef.current.stamina <= 0) return;
+
+        if (playerActionRef.current === MoveType.ROLL) return;
 
         const move = MOVES[moveType];
 
@@ -1377,9 +1427,19 @@ const App: React.FC = () => {
             sendData({ type: 'MOVE', move: moveType });
         }
 
+        const nextStamina = Math.min(playerStatsRef.current.maxStamina, Math.max(0, playerStatsRef.current.stamina - move.staminaCost));
         updateStats('player', {
-            stamina: Math.min(playerStatsRef.current.maxStamina, Math.max(0, playerStatsRef.current.stamina - move.staminaCost))
+            stamina: nextStamina
         });
+
+        if (gameMode === GameMode.PVP_ONLINE) {
+            sendData({
+                type: 'STATS_UPDATE',
+                health: playerStatsRef.current.currentHealth,
+                stamina: nextStamina,
+                sakYant: playerStatsRef.current.activeSakYant
+            });
+        }
 
         if (moveType === MoveType.BLOCK) return;
         if (moveType === MoveType.BLOCK_HIT) return;
@@ -1401,101 +1461,61 @@ const App: React.FC = () => {
             // Safe guard check against race conditions
             if (gameStateRef.current !== GameState.FIGHTING) return;
 
-            if (gameMode === GameMode.PVP_ONLINE) return; // Host handles hit logic
-
             const dist = playerPositionRef.current.distanceTo(opponentPositionRef.current);
-            // Adventure/PvE Hit Logic
             const hitRange = 1.8;
 
             if (dist < hitRange) {
-                const isOpponentBlocking = opponentAction === MoveType.BLOCK || opponentAction === MoveType.BLOCK_HIT;
-                // Roll dodging
-                const isOpponentRolling = opponentAction === MoveType.ROLL;
+                const opponentCurrentAction = cpuActionRef.current;
+                const isOpponentBlocking = opponentCurrentAction === MoveType.BLOCK || opponentCurrentAction === MoveType.BLOCK_HIT;
+                const isOpponentRolling = opponentCurrentAction === MoveType.ROLL;
 
                 if (isOpponentRolling) {
                     addFloatingText("DODGED", opponentPositionRef.current, "gray");
+                    setComboCount(0);
                     return;
                 }
 
                 const hitRoll = Math.random();
                 if (hitRoll < move.hitChance) {
-                    // Calculate Damage with Modifiers
-                    const heroData = HEROES_DB[selectedHero];
-                    // Check safeguard
-                    if (!heroData) return;
-
-                    const attributes = heroData.attributes;
-
-                    let damage = move.damage;
-
-                    if (moveType === MoveType.PUNCH) damage *= heroData.modifiers.punch;
-                    if (moveType === MoveType.UPPERCUT) damage *= (heroData.modifiers.punch * 1.2);
-                    if (moveType === MoveType.KICK) damage *= heroData.modifiers.kick;
-                    if (moveType === MoveType.ELBOW) damage *= heroData.modifiers.elbow;
-                    if (moveType === MoveType.KNEE) damage *= heroData.modifiers.knee;
-
-                    // Attribute Bonus (Strength) - Flat damage add
-                    damage += (attributes.strength * 0.8);
-
-                    // Attribute Bonus (Technique) - Crit Chance
-                    const critChance = attributes.technique * 0.015; // 1.5% per point
-                    const isCrit = Math.random() < critChance;
-                    if (isCrit) {
-                        damage *= 1.5;
-                        addFloatingText("CRIT!", new Vector3(opponentPositionRef.current.x, opponentPositionRef.current.y + 0.5, opponentPositionRef.current.z), "orange");
-                    }
-
-                    // Sak Yant Buffs (Twin Tiger)
-                    if (playerStatsRef.current.activeSakYant?.type === SakYantType.TWIN_TIGER) {
-                        const lvl = playerStatsRef.current.activeSakYant.level;
-                        const buff = SAK_YANT_DB[SakYantType.TWIN_TIGER].levels[lvl].effectValue;
-                        damage *= buff;
-
-                        // Integrity Cost for Offensive Yant
-                        const newIntegrity = Math.max(0, playerStatsRef.current.activeSakYant.currentIntegrity - 1);
-                        updateStats('player', { activeSakYant: { ...playerStatsRef.current.activeSakYant, currentIntegrity: newIntegrity } });
-                    }
-
-                    // Opponent Defense in Adventure Mode scales up (Damage reduction)
-                    if (gameMode === GameMode.ADVENTURE) {
-                        const defenseScaling = 1.0 - (adventureStage * 0.03); // -3% dmg taken per stage
-                        damage *= defenseScaling;
-                    }
+                    const damage = calculatePlayerAttackDamage(moveType);
+                    if (damage == null) return;
 
                     if (isOpponentBlocking) {
                         playSound('block');
                         addFloatingText("BLOCKED", opponentPositionRef.current, "gray");
                         setComboCount(0);
-                        // Trigger Block Hit Animation on Opponent
                         setOpponentAction(MoveType.BLOCK_HIT);
                         setTimeout(() => {
-                            // Only revert if they haven't started another action
                             if (opponentStatsRef.current.currentHealth > 0) {
                                 setOpponentAction(MoveType.BLOCK);
                             }
                         }, 300);
+
+                        if (gameMode === GameMode.PVP_ONLINE) {
+                            sendData({
+                                type: 'HIT_CONFIRM',
+                                damage,
+                                isBlocked: true
+                            });
+                        }
                     } else {
                         playSound('hit');
-                        const newHp = Math.max(0, opponentStatsRef.current.currentHealth - damage);
-                        updateStats('opponent', { currentHealth: newHp });
                         addFloatingText(damage.toFixed(0), opponentPositionRef.current, "white");
-                        setComboCount(c => c + 1);
+                        applyPlayerOnHitEffects(damage);
 
-                        // Life Steal (Naga)
-                        if (playerStatsRef.current.activeSakYant?.type === SakYantType.NAGA) {
-                            const lvl = playerStatsRef.current.activeSakYant.level;
-                            const lifesteal = SAK_YANT_DB[SakYantType.NAGA].levels[lvl].secondaryEffect || 0;
-                            if (Math.random() < 0.5) {
-                                const heal = damage * lifesteal;
-                                updateStats('player', { currentHealth: Math.min(playerStatsRef.current.maxHealth, playerStatsRef.current.currentHealth + heal) });
-                                // Integrity Cost
-                                const newIntegrity = Math.max(0, playerStatsRef.current.activeSakYant.currentIntegrity - 2);
-                                updateStats('player', { activeSakYant: { ...playerStatsRef.current.activeSakYant, currentIntegrity: newIntegrity } });
+                        if (gameMode === GameMode.PVP_ONLINE) {
+                            sendData({
+                                type: 'HIT_CONFIRM',
+                                damage,
+                                isBlocked: false
+                            });
+                        } else {
+                            const newHp = Math.max(0, opponentStatsRef.current.currentHealth - damage);
+                            updateStats('opponent', { currentHealth: newHp });
+
+                            if (newHp <= 0) {
+                                endFight(true);
                             }
-                        }
-
-                        if (newHp <= 0) {
-                            endFight(true);
                         }
                     }
                 } else {
@@ -1800,7 +1820,12 @@ const App: React.FC = () => {
                         onFpsSample={setFpsEstimate}
                     />
                     <VRControllerHandler onAction={handlePlayerAction} playerPositionRef={playerPositionRef} />
-                    <VRFloatingHUD playerStats={playerStats} opponentStats={opponentStats} />
+                    <VRFloatingHUD
+                        playerStats={playerStats}
+                        opponentStats={opponentStats}
+                        playerColor={playerCornerColor}
+                        opponentColor={opponentCornerColor}
+                    />
 
                     <ViewController
                         isFirstPerson={isFirstPerson}
@@ -1824,7 +1849,7 @@ const App: React.FC = () => {
                                         (gameState === GameState.RITUAL) ? [0, 0, 0] :
                                             playerStatsRef.current.currentHealth > 0 ? playerPositionRef.current.toArray() : [-100, 0, 0]
                             }
-                            color={FIGHTER_CONFIG.PLAYER_COLOR}
+                            color={playerCornerColor}
                             action={
                                 (gameState === GameState.MENU || gameState === GameState.CHARACTER_SELECT || gameState === GameState.SAK_YANT_MENU) ? menuHeroAction :
                                     (gameState === GameState.RITUAL) ? MoveType.RITUAL_DANCE :
@@ -1852,7 +1877,7 @@ const App: React.FC = () => {
                     {(gameState === GameState.FIGHTING || gameState === GameState.VICTORY) && (
                         <Fighter
                             position={opponentPositionRef.current.toArray()}
-                            color={FIGHTER_CONFIG.CPU_COLOR}
+                            color={opponentCornerColor}
                             action={opponentAction}
                             isFacingRight={false}
                             sakYant={opponentStats.activeSakYant}
@@ -1926,7 +1951,7 @@ const App: React.FC = () => {
                         {/* Player Health */}
                         <div className="flex-1">
                             <div className="flex justify-between text-white font-bold mb-1 drop-shadow-md">
-                                <span className="text-blue-400 text-lg">{HEROES_DB[selectedHero]?.name || "Fighter"}</span>
+                                <span className="text-lg" style={{ color: playerCornerColor }}>{HEROES_DB[selectedHero]?.name || "Fighter"}</span>
                                 <div className="flex items-center gap-2">
                                     <span className="text-sm">LVL {playerProfile.level}</span>
                                     {playerStats.ritualBuff?.isActive && (
@@ -1938,7 +1963,13 @@ const App: React.FC = () => {
                             </div>
                             {/* Health */}
                             <div className="h-6 bg-gray-800 rounded-sm border-2 border-gray-600 relative overflow-hidden skew-x-[-10deg]">
-                                <div className="h-full bg-blue-600 transition-all duration-300" style={{ width: `${(playerStats.currentHealth / playerStats.maxHealth) * 100}%` }}></div>
+                                <div
+                                    className="h-full transition-all duration-300"
+                                    style={{
+                                        width: `${(playerStats.currentHealth / playerStats.maxHealth) * 100}%`,
+                                        backgroundColor: playerCornerColor
+                                    }}
+                                ></div>
                             </div>
                             {/* Stamina */}
                             <div className="h-2 mt-1 bg-gray-800 rounded-sm relative overflow-hidden skew-x-[-10deg] w-3/4">
@@ -1969,11 +2000,17 @@ const App: React.FC = () => {
                         {/* Opponent Health */}
                         <div className="flex-1 text-right">
                             <div className="flex justify-between text-white font-bold mb-1 drop-shadow-md flex-row-reverse">
-                                <span className="text-red-500 text-lg uppercase">{opponentStats.name || "Opponent"}</span>
+                                <span className="text-lg uppercase" style={{ color: opponentCornerColor }}>{opponentStats.name || "Opponent"}</span>
                                 {gameMode === GameMode.ADVENTURE && <span className="text-sm text-gray-400">STAGE {adventureStage + 1}</span>}
                             </div>
                             <div className="h-6 bg-gray-800 rounded-sm border-2 border-gray-600 relative overflow-hidden skew-x-[10deg]">
-                                <div className="h-full bg-red-600 transition-all duration-300 absolute right-0" style={{ width: `${(opponentStats.currentHealth / opponentStats.maxHealth) * 100}%` }}></div>
+                                <div
+                                    className="h-full transition-all duration-300 absolute right-0"
+                                    style={{
+                                        width: `${(opponentStats.currentHealth / opponentStats.maxHealth) * 100}%`,
+                                        backgroundColor: opponentCornerColor
+                                    }}
+                                ></div>
                             </div>
                             <div className="h-2 mt-1 bg-gray-800 rounded-sm relative overflow-hidden skew-x-[10deg] w-3/4 ml-auto">
                                 <div className="h-full bg-orange-400 transition-all duration-100 absolute right-0" style={{ width: `${(opponentStats.stamina / opponentStats.maxStamina) * 100}%` }}></div>
@@ -2135,7 +2172,7 @@ const App: React.FC = () => {
                         {/* Main Actions - Stacked for clarity */}
                         <div className="w-full space-y-3 mb-8">
                             <button
-                                onClick={() => { setGameMode(GameMode.PVE); startFight(); }}
+                                onClick={() => { setGameMode(GameMode.PVE); startFight(GameMode.PVE); }}
                                 className="w-full relative group overflow-hidden bg-gray-900 rounded-xl p-1 transition-all hover:scale-[1.02] shadow-lg"
                             >
                                 <div className="absolute inset-0 bg-gradient-to-r from-blue-600 to-blue-400 opacity-0 group-hover:opacity-20 transition-opacity" />
@@ -2349,7 +2386,7 @@ const App: React.FC = () => {
                     onSelectLevel={(level) => {
                         setAdventureStage(level);
                         setGameMode(GameMode.ADVENTURE);
-                        startFight();
+                        startFight(GameMode.ADVENTURE);
                     }}
                     onBack={() => setGameState(GameState.MENU)}
                 />
@@ -2358,12 +2395,12 @@ const App: React.FC = () => {
             {gameState === GameState.ONLINE_LOBBY && (
                 <OnlineLobby
                     onBack={() => { setGameState(GameState.MENU); setOnlineState(null); }}
+                    onPeerData={handlePvpData}
                     onGameStart={(isHost, roomId, conn) => {
+                        setIsOnlineHost(isHost);
                         setOnlineState(isHost ? 'HOSTING' : 'CONNECTED');
                         setGameMode(GameMode.PVP_ONLINE);
-                        // For online, host sets random seed, etc.
-                        // Simple start for now:
-                        startFight();
+                        startFight(GameMode.PVP_ONLINE, isHost);
                     }}
                 />
             )}

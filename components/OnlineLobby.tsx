@@ -6,10 +6,11 @@ import { PeerData } from '../types';
 
 interface OnlineLobbyProps {
   onBack: () => void;
+  onPeerData: (data: PeerData, peerId: string) => void;
   onGameStart: (isHost: boolean, roomId: string, connection: any) => void;
 }
 
-const OnlineLobby: React.FC<OnlineLobbyProps> = ({ onBack, onGameStart }) => {
+const OnlineLobby: React.FC<OnlineLobbyProps> = ({ onBack, onPeerData, onGameStart }) => {
   const [mode, setMode] = useState<'SELECT' | 'HOST' | 'JOIN'>('SELECT');
   const [roomId, setRoomId] = useState<string>('');
   const [joinId, setJoinId] = useState<string>('');
@@ -41,7 +42,7 @@ const OnlineLobby: React.FC<OnlineLobbyProps> = ({ onBack, onGameStart }) => {
         }, 1000);
       },
       (data, id) => {
-        // Handled in App.tsx mainly, but we could listen here for handshake
+        onPeerData(data, id);
       },
       (err) => {
         setError('Connection Error: ' + err.type);
@@ -63,7 +64,9 @@ const OnlineLobby: React.FC<OnlineLobbyProps> = ({ onBack, onGameStart }) => {
           onGameStart(false, joinId, null);
         }, 1000);
       },
-      (data, id) => {},
+      (data, id) => {
+        onPeerData(data, id);
+      },
       (err) => {
         setError('Could not connect. Check ID.');
         setMode('SELECT');
