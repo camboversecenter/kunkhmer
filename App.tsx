@@ -25,7 +25,6 @@ import {
     PlayerInventory,
     PlayerProfile,
     RendererTelemetry,
-    RitualBuff,
     SakYantType,
     SceneryTheme,
     UserProfile
@@ -42,7 +41,6 @@ import Joystick from './components/Joystick';
 import AdventureMap from './components/AdventureMap';
 import TreasureBoxOverlay from './components/TreasureBoxOverlay';
 import CharacterSelect from './components/CharacterSelect';
-import RitualOverlay from './components/RitualOverlay';
 import { playSound, startBackgroundMusic, stopBackgroundMusic, toggleMute } from './services/audioService';
 import { initializeGoogleAuth, renderGoogleButton, getLeaderboard, submitScore, cancelAuth, saveUserData, loadUserData } from './services/authService';
 import { initializePeer, connectToPeer, sendData, sendToPeer, destroyPeer } from './services/peerService';
@@ -714,26 +712,6 @@ const App: React.FC = () => {
         setIsAudioOn(!muted);
     };
 
-    // Ritual Complete Logic
-    const handleRitualComplete = (accuracy: number) => {
-        const hasBuff = accuracy >= 0.8;
-        if (hasBuff) {
-            playSound('win');
-            setNotification("ANCESTOR'S BLESSING GRANTED!");
-            setTimeout(() => setNotification(null), 2000);
-        }
-
-        const ritualBuff: RitualBuff = {
-            isActive: hasBuff,
-            timeLeft: 60, // 60 seconds
-            staminaMultiplier: hasBuff ? 1.5 : 1.0,
-            defenseMultiplier: hasBuff ? 0.75 : 1.0 // 75% dmg taken = +25% defense
-        };
-
-        setPlayerStats(prev => ({ ...prev, ritualBuff }));
-        setGameState(GameState.FIGHTING);
-    };
-
     // Stamina Regeneration Loop
     useEffect(() => {
         if (gameState !== GameState.FIGHTING) return;
@@ -1098,8 +1076,7 @@ const App: React.FC = () => {
 
         resetPlayerStats();
 
-        // CHANGE: Start RITUAL phase instead of FIGHTING directly
-        setGameState(GameState.RITUAL);
+        setGameState(GameState.FIGHTING);
         startBackgroundMusic();
         playSound('start'); // Gong
     };
@@ -1962,14 +1939,9 @@ const App: React.FC = () => {
                 </div>
             )}
 
-            {/* RITUAL OVERLAY */}
-            {gameState === GameState.RITUAL && (
-                <RitualOverlay onComplete={handleRitualComplete} bpm={100} />
-            )}
-
             {/* 2. GAME HUD */}
             {gameState === GameState.FIGHTING && (
-                <div className="absolute inset-0 z-10 pointer-events-none flex flex-col justify-between p-2 md:p-6">
+                <div className="absolute inset-0 z-10 pointer-events-none flex flex-col justify-between px-2 pb-2 pt-16 md:p-6">
                     {/* Health Bars */}
                     <div className="flex justify-between items-start w-full max-w-5xl mx-auto gap-4">
                         {/* Player Health */}
@@ -2114,16 +2086,16 @@ const App: React.FC = () => {
                     </div>
 
                     {/* Top Center Menu */}
-                    <div className="absolute top-4 left-1/2 z-20 flex max-w-[calc(100vw-2rem)] -translate-x-1/2 flex-wrap justify-center gap-2 rounded-full border border-white/10 bg-black/35 px-3 py-2 shadow-xl backdrop-blur-md pointer-events-auto">
-                        <button onClick={handleToggleAudio} className="p-2 bg-black/40 rounded-full backdrop-blur text-white hover:bg-black/60">
-                            {isAudioOn ? <Volume2 size={20} /> : <VolumeX size={20} />}
+                    <div className="absolute left-1/2 top-2 z-20 flex max-w-[calc(100vw-1rem)] -translate-x-1/2 flex-nowrap justify-center gap-1.5 rounded-full border border-white/10 bg-black/45 px-2 py-1.5 shadow-xl backdrop-blur-md pointer-events-auto md:top-4 md:gap-2 md:px-3 md:py-2">
+                        <button onClick={handleToggleAudio} className="flex h-8 w-8 items-center justify-center rounded-full bg-black/40 text-white backdrop-blur hover:bg-black/60 md:h-10 md:w-10">
+                            {isAudioOn ? <Volume2 size={16} /> : <VolumeX size={16} />}
                         </button>
                         <button
                             onClick={cycleGraphicsMode}
-                            className="p-2 bg-black/40 rounded-full backdrop-blur text-white hover:bg-black/60"
+                            className="flex h-8 w-8 items-center justify-center rounded-full bg-black/40 text-white backdrop-blur hover:bg-black/60 md:h-10 md:w-10"
                             title={`Graphics mode: ${graphicsMode === 'AUTO' ? `AUTO ${performanceProfile.preset}` : graphicsMode}`}
                         >
-                            <Monitor size={20} />
+                            <Monitor size={16} />
                         </button>
                         <button
                             onClick={() => {
@@ -2133,20 +2105,20 @@ const App: React.FC = () => {
                                     setTimeout(() => setNotification(null), 2000);
                                 });
                             }}
-                            className="p-2 bg-black/40 rounded-full backdrop-blur text-white hover:bg-black/60"
+                            className="flex h-8 w-8 items-center justify-center rounded-full bg-black/40 text-white backdrop-blur hover:bg-black/60 md:h-10 md:w-10"
                         >
-                            <Music size={20} />
+                            <Music size={16} />
                         </button>
-                        <button onClick={() => setSceneryTheme(t => SCENERY_THEMES[(SCENERY_THEMES.indexOf(t) + 1) % SCENERY_THEMES.length])} className="p-2 bg-black/40 rounded-full backdrop-blur text-white hover:bg-black/60">
-                            <Settings size={20} />
+                        <button onClick={() => setSceneryTheme(t => SCENERY_THEMES[(SCENERY_THEMES.indexOf(t) + 1) % SCENERY_THEMES.length])} className="flex h-8 w-8 items-center justify-center rounded-full bg-black/40 text-white backdrop-blur hover:bg-black/60 md:h-10 md:w-10">
+                            <Settings size={16} />
                         </button>
-                        <button onClick={() => setIsFirstPerson(!isFirstPerson)} className="p-2 bg-black/40 rounded-full backdrop-blur text-white hover:bg-black/60" title="First Person View">
-                            {isFirstPerson ? <EyeOff size={20} /> : <Eye size={20} />}
+                        <button onClick={() => setIsFirstPerson(!isFirstPerson)} className="flex h-8 w-8 items-center justify-center rounded-full bg-black/40 text-white backdrop-blur hover:bg-black/60 md:h-10 md:w-10" title="First Person View">
+                            {isFirstPerson ? <EyeOff size={16} /> : <Eye size={16} />}
                         </button>
-                        <div className="vr-container relative p-2 bg-black/40 rounded-full backdrop-blur text-white hover:bg-black/60 group overflow-hidden flex items-center justify-center">
+                        <div className="vr-container relative flex h-8 w-8 items-center justify-center overflow-hidden rounded-full bg-black/40 text-white backdrop-blur hover:bg-black/60 group md:h-10 md:w-10">
                             <VRButton />
                             <div className="pointer-events-none relative z-0 flex items-center justify-center">
-                                <Glasses size={20} className="text-purple-400 group-hover:scale-110 transition-transform" />
+                                <Glasses size={16} className="text-purple-400 transition-transform group-hover:scale-110" />
                             </div>
                         </div>
                     </div>
