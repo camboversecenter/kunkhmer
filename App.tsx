@@ -1941,13 +1941,13 @@ const App: React.FC = () => {
 
             {/* 2. GAME HUD */}
             {gameState === GameState.FIGHTING && (
-                <div className="absolute inset-0 z-10 pointer-events-none flex flex-col justify-between px-2 pb-2 pt-20 md:pt-24 md:px-8">
+                <div className="absolute inset-0 z-10 pointer-events-none flex flex-col justify-between px-2 pb-2 pt-10 md:pt-12 md:px-8">
                     {/* Health Bars */}
                     <div className="flex justify-between items-start w-full max-w-5xl mx-auto gap-4">
                         {/* Player Health */}
                         <div className="flex-1">
-                            <div className="flex justify-between text-white font-bold mb-1 drop-shadow-md">
-                                <span className="text-lg" style={{ color: playerCornerColor }}>{HEROES_DB[selectedHero]?.name || "Fighter"}</span>
+                            <div className="flex justify-between text-white font-bold mb-0.5 drop-shadow-md">
+                                <span className="text-sm md:text-base" style={{ color: playerCornerColor }}>{HEROES_DB[selectedHero]?.name || "Fighter"}</span>
                                 <div className="flex items-center gap-2">
                                     <span className="text-sm">LVL {playerProfile.level}</span>
                                     {playerStats.ritualBuff?.isActive && (
@@ -1958,7 +1958,7 @@ const App: React.FC = () => {
                                 </div>
                             </div>
                             {/* Health */}
-                            <div className="h-6 bg-gray-800 rounded-sm border-2 border-gray-600 relative overflow-hidden skew-x-[-10deg]">
+                            <div className="h-3.5 md:h-4.5 bg-gray-800 rounded-sm border-[1.5px] border-gray-600 relative overflow-hidden skew-x-[-10deg]">
                                 <div
                                     className="h-full transition-all duration-300"
                                     style={{
@@ -1968,7 +1968,7 @@ const App: React.FC = () => {
                                 ></div>
                             </div>
                             {/* Stamina */}
-                            <div className="h-2 mt-1 bg-gray-800 rounded-sm relative overflow-hidden skew-x-[-10deg] w-3/4">
+                            <div className="h-1.5 mt-0.5 bg-gray-800 rounded-sm relative overflow-hidden skew-x-[-10deg] w-2/3">
                                 <div className="h-full bg-yellow-400 transition-all duration-100" style={{ width: `${(playerStats.stamina / playerStats.maxStamina) * 100}%` }}></div>
                             </div>
                             {/* Sak Yant Integrity */}
@@ -1989,17 +1989,17 @@ const App: React.FC = () => {
                         </div>
 
                         {/* VS Timer */}
-                        <div className="text-center pt-2">
-                            <div className="text-3xl font-black text-yellow-500 drop-shadow-[0_2px_2px_rgba(0,0,0,0.8)]">VS</div>
+                        <div className="text-center">
+                            <div className="text-xl md:text-2xl font-black text-yellow-500 drop-shadow-[0_2px_2px_rgba(0,0,0,0.8)]">VS</div>
                         </div>
 
                         {/* Opponent Health */}
                         <div className="flex-1 text-right">
-                            <div className="flex justify-between text-white font-bold mb-1 drop-shadow-md flex-row-reverse">
-                                <span className="text-lg uppercase" style={{ color: opponentCornerColor }}>{opponentStats.name || "Opponent"}</span>
+                            <div className="flex justify-between text-white font-bold mb-0.5 drop-shadow-md flex-row-reverse">
+                                <span className="text-sm md:text-base uppercase" style={{ color: opponentCornerColor }}>{opponentStats.name || "Opponent"}</span>
                                 {gameMode === GameMode.ADVENTURE && <span className="text-sm text-gray-400">STAGE {adventureStage + 1}</span>}
                             </div>
-                            <div className="h-6 bg-gray-800 rounded-sm border-2 border-gray-600 relative overflow-hidden skew-x-[10deg]">
+                            <div className="h-3.5 md:h-4.5 bg-gray-800 rounded-sm border-[1.5px] border-gray-600 relative overflow-hidden skew-x-[10deg]">
                                 <div
                                     className="h-full transition-all duration-300 absolute right-0"
                                     style={{
@@ -2008,7 +2008,7 @@ const App: React.FC = () => {
                                     }}
                                 ></div>
                             </div>
-                            <div className="h-2 mt-1 bg-gray-800 rounded-sm relative overflow-hidden skew-x-[10deg] w-3/4 ml-auto">
+                            <div className="h-1.5 mt-0.5 bg-gray-800 rounded-sm relative overflow-hidden skew-x-[10deg] w-2/3 ml-auto">
                                 <div className="h-full bg-orange-400 transition-all duration-100 absolute right-0" style={{ width: `${(opponentStats.stamina / opponentStats.maxStamina) * 100}%` }}></div>
                             </div>
                         </div>
@@ -2086,16 +2086,16 @@ const App: React.FC = () => {
                     </div>
 
                     {/* Top Center Menu */}
-                    <div className="absolute left-1/2 top-2 z-20 flex max-w-[calc(100vw-1rem)] -translate-x-1/2 flex-nowrap justify-center gap-1.5 rounded-full border border-white/10 bg-black/45 px-2 py-1.5 shadow-xl backdrop-blur-md pointer-events-auto md:top-4 md:gap-2 md:px-3 md:py-2">
-                        <button onClick={handleToggleAudio} className="flex h-8 w-8 items-center justify-center rounded-full bg-black/40 text-white backdrop-blur hover:bg-black/60 md:h-10 md:w-10">
-                            {isAudioOn ? <Volume2 size={16} /> : <VolumeX size={16} />}
+                    <div className="absolute left-1/2 top-1.5 z-20 flex max-w-[calc(100vw-1rem)] -translate-x-1/2 flex-nowrap justify-center gap-1 rounded-full border border-white/10 bg-black/45 px-1.5 py-1 shadow-xl backdrop-blur-md pointer-events-auto md:top-3 md:gap-1.5 md:px-2 md:py-1.5">
+                        <button onClick={handleToggleAudio} className="flex h-7 w-7 items-center justify-center rounded-full bg-black/40 text-white backdrop-blur hover:bg-black/60 md:h-8.5 md:w-8.5">
+                            {isAudioOn ? <Volume2 size={14} /> : <VolumeX size={14} />}
                         </button>
                         <button
                             onClick={cycleGraphicsMode}
-                            className="flex h-8 w-8 items-center justify-center rounded-full bg-black/40 text-white backdrop-blur hover:bg-black/60 md:h-10 md:w-10"
+                            className="flex h-7 w-7 items-center justify-center rounded-full bg-black/40 text-white backdrop-blur hover:bg-black/60 md:h-8.5 md:w-8.5"
                             title={`Graphics mode: ${graphicsMode === 'AUTO' ? `AUTO ${performanceProfile.preset}` : graphicsMode}`}
                         >
-                            <Monitor size={16} />
+                            <Monitor size={14} />
                         </button>
                         <button
                             onClick={() => {
@@ -2105,20 +2105,20 @@ const App: React.FC = () => {
                                     setTimeout(() => setNotification(null), 2000);
                                 });
                             }}
-                            className="flex h-8 w-8 items-center justify-center rounded-full bg-black/40 text-white backdrop-blur hover:bg-black/60 md:h-10 md:w-10"
+                            className="flex h-7 w-7 items-center justify-center rounded-full bg-black/40 text-white backdrop-blur hover:bg-black/60 md:h-8.5 md:w-8.5"
                         >
-                            <Music size={16} />
+                            <Music size={14} />
                         </button>
-                        <button onClick={() => setSceneryTheme(t => SCENERY_THEMES[(SCENERY_THEMES.indexOf(t) + 1) % SCENERY_THEMES.length])} className="flex h-8 w-8 items-center justify-center rounded-full bg-black/40 text-white backdrop-blur hover:bg-black/60 md:h-10 md:w-10">
-                            <Settings size={16} />
+                        <button onClick={() => setSceneryTheme(t => SCENERY_THEMES[(SCENERY_THEMES.indexOf(t) + 1) % SCENERY_THEMES.length])} className="flex h-7 w-7 items-center justify-center rounded-full bg-black/40 text-white backdrop-blur hover:bg-black/60 md:h-8.5 md:w-8.5">
+                            <Settings size={14} />
                         </button>
-                        <button onClick={() => setIsFirstPerson(!isFirstPerson)} className="flex h-8 w-8 items-center justify-center rounded-full bg-black/40 text-white backdrop-blur hover:bg-black/60 md:h-10 md:w-10" title="First Person View">
-                            {isFirstPerson ? <EyeOff size={16} /> : <Eye size={16} />}
+                        <button onClick={() => setIsFirstPerson(!isFirstPerson)} className="flex h-7 w-7 items-center justify-center rounded-full bg-black/40 text-white backdrop-blur hover:bg-black/60 md:h-8.5 md:w-8.5" title="First Person View">
+                            {isFirstPerson ? <EyeOff size={14} /> : <Eye size={14} />}
                         </button>
-                        <div className="vr-container relative flex h-8 w-8 items-center justify-center overflow-hidden rounded-full bg-black/40 text-white backdrop-blur hover:bg-black/60 group md:h-10 md:w-10">
+                        <div className="vr-container relative flex h-7 w-7 items-center justify-center overflow-hidden rounded-full bg-black/40 text-white backdrop-blur hover:bg-black/60 group md:h-8.5 md:w-8.5">
                             <VRButton />
                             <div className="pointer-events-none relative z-0 flex items-center justify-center">
-                                <Glasses size={16} className="text-purple-400 transition-transform group-hover:scale-110" />
+                                <Glasses size={14} className="text-purple-400 transition-transform group-hover:scale-110" />
                             </div>
                         </div>
                     </div>
