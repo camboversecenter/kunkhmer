@@ -1,11 +1,10 @@
+﻿
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { CameraShake, OrbitControls, Text, Float } from '@react-three/drei';
 import { EffectComposer, Bloom, Vignette } from '@react-three/postprocessing';
 import { XR, VRButton, useXR, Controllers, useController, useXREvent } from '@react-three/xr';
-import { Vector3, Group, MathUtils, PerspectiveCamera, MeshBasicMaterial, Object3D } from 'three';
-import { ThreeElements } from '@react-three/fiber';
-
+import { Vector3, Group, MathUtils, PerspectiveCamera, MeshBasicMaterial } from 'three';
 import {
     AssetDownloadStatus,
     DeviceCapabilities,
@@ -30,10 +29,9 @@ import {
     CombatStyle,
     SceneryTheme,
     ProvinceId,
-    UserProfile,
-    RendererTelemetry
+    UserProfile
 } from './types';
-import { MOVES, HEROES_DB, SAK_YANT_DB, FIGHTER_CONFIG, INITIAL_INVENTORY, GAME_ECONOMY, COMBAT_STYLE_MODIFIERS, PROVINCES, ADVENTURE_OPPONENTS } from './constants';
+import { MOVES, HEROES_DB, SAK_YANT_DB, FIGHTER_CONFIG, INITIAL_INVENTORY, GAME_ECONOMY, COMBAT_STYLE_MODIFIERS, PROVINCES } from './constants';
 import Fighter from './components/Fighter';
 import Arena from './components/Arena';
 import Scenery from './components/Scenery';
@@ -45,8 +43,7 @@ import Joystick from './components/Joystick';
 import AdventureMap from './components/AdventureMap';
 import TreasureBoxOverlay from './components/TreasureBoxOverlay';
 import CharacterSelect from './components/CharacterSelect';
-import MobileOverlay from './components/MobileOverlay';
-import { playSound, startBackgroundMusic, stopBackgroundMusic, toggleMute, SoundType } from './services/audioService';
+import { playSound, startBackgroundMusic, stopBackgroundMusic, toggleMute } from './services/audioService';
 import { initializeGoogleAuth, renderGoogleButton, getLeaderboard, submitScore, cancelAuth, saveUserData, loadUserData } from './services/authService';
 import { initializePeer, connectToPeer, sendData, sendToPeer, destroyPeer } from './services/peerService';
 import {
@@ -122,9 +119,7 @@ const INITIAL_STATS: FighterStats = {
     stamina: 120,
     maxStamina: 120,
     staminaRegenMultiplier: 1.0,
-    activeSakYant: null,
-    spiritGauge: 0,
-    isSpiritMode: false
+    activeSakYant: null
 };
 
 const INITIAL_PROFILE: PlayerProfile = {
@@ -139,173 +134,99 @@ const INITIAL_PROFILE: PlayerProfile = {
 
 const VRControllerHandler = ({
     onAction,
-    playerPositionRef,
-    gameState,
-    onStartFight,
-    simulated = false
+    playerPositionRef
 }: {
     onAction: (move: MoveType) => void,
-    playerPositionRef: React.MutableRefObject<Vector3>,
-    gameState: GameState,
-    onStartFight: () => void,
-    simulated?: boolean
+    playerPositionRef: React.MutableRefObject<Vector3>
 }) => {
     const { player, isPresenting } = useXR();
-    const effectivePresenting = isPresenting || simulated;
     const leftController = useController('left');
     const rightController = useController('right');
-    const stateRef = useRef(gameState);
-    
-    // Track previous frame's button states to only trigger actions on press down (edge detection)
-    const lastButtonsRef = useRef<{ right: boolean[], left: boolean[] }>({ right: [], left: [] });
 
-    useEffect(() => {
-        stateRef.current = gameState;
-    }, [gameState]);
-
-    // Keyboard simulation for PC VR testing
-    useEffect(() => {
-        if (!simulated) return;
-
-        const handleKeyDown = (e: KeyboardEvent) => {
-            if (stateRef.current === GameState.MENU && e.key === 'Enter') {
-                onStartFight();
-            }
-            if (stateRef.current === GameState.FIGHTING) {
-                if (e.key === 'q') onAction(MoveType.PUNCH);
-                if (e.key === 'e') onAction(MoveType.KICK);
-                if (e.key === 'r') onAction(MoveType.UPPERCUT);
-                if (e.key === 'f') onAction(MoveType.KNEE);
-                if (e.key === 't') onAction(MoveType.ELBOW);
-                if (e.key === 'g') onAction(MoveType.TAUNT);
-                if (e.key === 'Shift') onAction(MoveType.BLOCK);
-            }
-        };
-
-        const handleKeyUp = (e: KeyboardEvent) => {
-            if (stateRef.current === GameState.FIGHTING && e.key === 'Shift') {
-                onAction(MoveType.IDLE);
-            }
-        };
-
-        window.addEventListener('keydown', handleKeyDown);
-        window.addEventListener('keyup', handleKeyUp);
-        return () => {
-            window.removeEventListener('keydown', handleKeyDown);
-            window.removeEventListener('keyup', handleKeyUp);
-        };
-    }, [simulated, onAction, onStartFight]);
-
-    // Trigger attacks / Start game
-    useXREvent('selectstart', (e: any) => {
-        if (!effectivePresenting) return;
-        
-        if (stateRef.current === GameState.MENU) {
-            onStartFight();
-            return;
-        }
-
-        if (stateRef.current === GameState.FIGHTING) {
-            // Check if source matches right or left controller
-            if (rightController && e.inputSource === rightController.inputSource) {
-                onAction(MoveType.PUNCH);
-            } else if (leftController && e.inputSource === leftController.inputSource) {
-                onAction(MoveType.KICK);
-            }
+    // Trigger attacks
+    useXREvent('selectstart', (e) => {
+        if (!isPresenting) return;
+        // Check which controller triggered the event
+        if (e.controller === rightController) {
+            onAction(MoveType.PUNCH);
+        } else if (e.controller === leftController) {
+            onAction(MoveType.KICK);
         }
     });
 
     // Grip for blocking
     useXREvent('squeezestart', (e) => {
-        if (stateRef.current === GameState.FIGHTING) onAction(MoveType.BLOCK);
+        onAction(MoveType.BLOCK);
     });
 
     useXREvent('squeezeend', (e) => {
-        if (stateRef.current === GameState.FIGHTING) onAction(MoveType.IDLE);
+        onAction(MoveType.IDLE);
     });
 
     useFrame((state, delta) => {
-        if (!effectivePresenting) return;
+        if (!isPresenting || !player) return;
 
-        const activePlayer = player || (simulated ? { position: playerPositionRef.current } : null);
-        if (!activePlayer) return;
-
-        // --- LOCOMOTION ---
-        let moveX = 0;
-        let moveY = 0;
-
+        // --- LOCOMOTION (Left Thumbstick) ---
         if (leftController?.inputSource?.gamepad) {
             const axes = leftController.inputSource.gamepad.axes;
-            moveX = axes[2] !== undefined ? axes[2] : axes[0] || 0;
-            moveY = axes[3] !== undefined ? axes[3] : axes[1] || 0;
-        } else if (simulated) {
-            // WASD Simulation
-            const keys = (window as any).simulatedKeys || new Set();
-            if (keys.has('w')) moveY = -1;
-            if (keys.has('s')) moveY = 1;
-            if (keys.has('a')) moveX = -1;
-            if (keys.has('d')) moveX = 1;
-        }
+            // Standard mapping: 2 = Horizontal, 3 = Vertical
+            const axisX = axes[2] || 0;
+            const axisY = axes[3] || 0;
 
-        if (Math.abs(moveX) > 0.1 || Math.abs(moveY) > 0.1) {
-            const speed = 2.5 * delta;
-            const direction = new Vector3();
-            state.camera.getWorldDirection(direction);
-            direction.y = 0;
-            
-            // CRITICAL FIX: Prevent NaN crash if looking straight up/down
-            if (direction.lengthSq() > 0.0001) {
+            if (Math.abs(axisX) > 0.1 || Math.abs(axisY) > 0.1) {
+                const speed = 2.5 * delta;
+                
+                // Get camera direction for forward movement
+                const direction = new Vector3();
+                state.camera.getWorldDirection(direction);
+                direction.y = 0;
                 direction.normalize();
+
                 const side = new Vector3().crossVectors(state.camera.up, direction).normalize();
 
-                activePlayer.position.add(direction.multiplyScalar(-moveY * speed));
-                activePlayer.position.add(side.multiplyScalar(moveX * speed));
+                // Move the XR Rig
+                player.position.add(direction.multiplyScalar(-axisY * speed));
+                player.position.add(side.multiplyScalar(axisX * speed));
 
-                activePlayer.position.x = MathUtils.clamp(activePlayer.position.x, -5, 5);
-                activePlayer.position.z = MathUtils.clamp(activePlayer.position.z, -5, 5);
+                // Boundary check
+                player.position.x = MathUtils.clamp(player.position.x, -5, 5);
+                player.position.z = MathUtils.clamp(player.position.z, -5, 5);
             }
         }
 
-        playerPositionRef.current.copy(activePlayer.position);
+        // --- POSITION SYNC ---
+        // Keep the game logic's player position in sync with XR rig
+        playerPositionRef.current.copy(player.position);
 
-        if (stateRef.current === GameState.FIGHTING && leftController && rightController) {
+        // --- GESTURE DETECTION ---
+        if (leftController && rightController) {
             const leftPos = leftController.controller.position;
             const rightPos = rightController.controller.position;
             const headPos = state.camera.position;
 
+            // 1. High Guard (Both hands near face)
             const distL = leftPos.distanceTo(headPos);
             const distR = rightPos.distanceTo(headPos);
             
             if (distL < 0.3 && distR < 0.3) {
                 onAction(MoveType.BLOCK);
             }
+
+            // 2. Spirit Trigger (Both hands high up and wide)
+            if (leftPos.y > headPos.y + 0.3 && rightPos.y > headPos.y + 0.3) {
+                const handDist = leftPos.distanceTo(rightPos);
+                if (handDist > 0.6) {
+                    onAction(MoveType.TAUNT); // Use taunt as proxy or call activateSpiritMode directly if we pass it
+                }
+            }
         }
 
-        if (stateRef.current === GameState.FIGHTING) {
-            if (rightController?.inputSource?.gamepad) {
-                const gamepad = rightController.inputSource.gamepad;
-                const buttons = gamepad.buttons;
-                
-                // Edge detection: only trigger if pressed now AND NOT pressed last frame
-                if (buttons[4]?.pressed && !lastButtonsRef.current.right[4]) onAction(MoveType.UPPERCUT);
-                if (buttons[5]?.pressed && !lastButtonsRef.current.right[5]) onAction(MoveType.KNEE);
-                
-                // Store current state for next frame
-                lastButtonsRef.current.right[4] = buttons[4]?.pressed || false;
-                lastButtonsRef.current.right[5] = buttons[5]?.pressed || false;
-            }
-            if (leftController?.inputSource?.gamepad) {
-                const gamepad = leftController.inputSource.gamepad;
-                const buttons = gamepad.buttons;
-
-                // Edge detection
-                if (buttons[4]?.pressed && !lastButtonsRef.current.left[4]) onAction(MoveType.ELBOW);
-                if (buttons[5]?.pressed && !lastButtonsRef.current.left[5]) onAction(MoveType.TAUNT);
-
-                // Store current state for next frame
-                lastButtonsRef.current.left[4] = buttons[4]?.pressed || false;
-                lastButtonsRef.current.left[5] = buttons[5]?.pressed || false;
-            }
+        // --- ADDITIONAL BUTTON MAPPING ---
+        if (rightController?.inputSource?.gamepad) {
+            const gamepad = rightController.inputSource.gamepad;
+            // Button 4 = A/X, Button 5 = B/Y
+            if (gamepad.buttons[4]?.pressed) onAction(MoveType.UPPERCUT);
+            if (gamepad.buttons[5]?.pressed) onAction(MoveType.KNEE);
         }
     });
 
@@ -316,72 +237,53 @@ const VRFloatingHUD = ({
     playerStats,
     opponentStats,
     playerColor,
-    opponentColor,
-    gameState,
-    onStartFight,
-    simulated = false
+    opponentColor
 }: {
     playerStats: FighterStats,
     opponentStats: FighterStats,
     playerColor: string,
-    opponentColor: string,
-    gameState: GameState,
-    onStartFight: () => void,
-    simulated?: boolean
+    opponentColor: string
 }) => {
     const { isPresenting } = useXR();
-    if (!isPresenting && !simulated) return null;
+    if (!isPresenting) return null;
 
     return (
-        <group position={[0, 2, -2]}>
-            <Float speed={2} rotationIntensity={0.1} floatIntensity={0.2}>
-                {gameState === GameState.MENU ? (
-                    <group>
-                        <Text position={[0, 0.5, 0]} fontSize={0.2} color="cyan" font="https://fonts.gstatic.com/s/pressstart2p/v15/e3t4euO8T-267oIAQAu6jTrynsmwp6A.woff">
-                            KUN KHMER FIGHT 3D
+        <group position={[0, 2.5, -2]}>
+            <Float speed={2} rotationIntensity={0.2} floatIntensity={0.5}>
+                <group scale={[0.8, 0.8, 0.8]}>
+                    {/* Player Stats Panel */}
+                    <group position={[-1.2, 0, 0]}>
+                        <Text position={[0, 0.3, 0]} fontSize={0.1} color="white" font="https://fonts.gstatic.com/s/pressstart2p/v15/e3t4euO8T-267oIAQAu6jTrynsmwp6A.woff">
+                            YOU
                         </Text>
-                        <Text position={[0, 0, 0]} fontSize={0.15} color="white">
-                            Press TRIGGER to Start Fight
-                        </Text>
-                        <mesh position={[0, -0.3, 0]} onClick={onStartFight}>
-                            <capsuleGeometry args={[0.3, 0.1, 4, 16]} />
-                            <meshBasicMaterial color="#eab308" />
-                            <Text position={[0, 0, 0.1]} fontSize={0.08} color="black" font="https://fonts.gstatic.com/s/pressstart2p/v15/e3t4euO8T-267oIAQAu6jTrynsmwp6A.woff">START</Text>
+                        <mesh position={[0, 0, 0]}>
+                            <planeGeometry args={[1, 0.1]} />
+                            <meshBasicMaterial color="#333" />
+                        </mesh>
+                        <mesh position={[-(1 - playerStats.currentHealth / playerStats.maxHealth) / 2, 0, 0.01]}>
+                            <planeGeometry args={[playerStats.currentHealth / playerStats.maxHealth, 0.08]} />
+                            <meshBasicMaterial color={playerColor} />
                         </mesh>
                     </group>
-                ) : (
-                    <group scale={[0.8, 0.8, 0.8]} position={[0, 0.5, 0]}>
-                        <group position={[-1.2, 0, 0]}>
-                            <Text position={[0, 0.3, 0]} fontSize={0.1} color="white" font="https://fonts.gstatic.com/s/pressstart2p/v15/e3t4euO8T-267oIAQAu6jTrynsmwp6A.woff">
-                                YOU
-                            </Text>
-                            <mesh position={[0, 0, 0]}>
-                                <planeGeometry args={[1, 0.1]} />
-                                <meshBasicMaterial color="#333" />
-                            </mesh>
-                            <mesh position={[-(1 - playerStats.currentHealth / playerStats.maxHealth) / 2, 0, 0.01]}>
-                                <planeGeometry args={[playerStats.currentHealth / playerStats.maxHealth, 0.08]} />
-                                <meshBasicMaterial color={playerColor} />
-                            </mesh>
-                        </group>
 
-                        <Text position={[0, 0, 0]} fontSize={0.2} color="#eab308">VS</Text>
+                    {/* VS Divider */}
+                    <Text position={[0, 0, 0]} fontSize={0.2} color="#eab308">VS</Text>
 
-                        <group position={[1.2, 0, 0]}>
-                            <Text position={[0, 0.3, 0]} fontSize={0.1} color="white" font="https://fonts.gstatic.com/s/pressstart2p/v15/e3t4euO8T-267oIAQAu6jTrynsmwp6A.woff">
-                                OPPONENT
-                            </Text>
-                            <mesh position={[0, 0, 0]}>
-                                <planeGeometry args={[1, 0.1]} />
-                                <meshBasicMaterial color="#333" />
-                            </mesh>
-                            <mesh position={[(1 - opponentStats.currentHealth / opponentStats.maxHealth) / 2, 0, 0.01]}>
-                                <planeGeometry args={[opponentStats.currentHealth / opponentStats.maxHealth, 0.08]} />
-                                <meshBasicMaterial color={opponentColor} />
-                            </mesh>
-                        </group>
+                    {/* Opponent Stats Panel */}
+                    <group position={[1.2, 0, 0]}>
+                        <Text position={[0, 0.3, 0]} fontSize={0.1} color="white" font="https://fonts.gstatic.com/s/pressstart2p/v15/e3t4euO8T-267oIAQAu6jTrynsmwp6A.woff">
+                            OPPONENT
+                        </Text>
+                        <mesh position={[0, 0, 0]}>
+                            <planeGeometry args={[1, 0.1]} />
+                            <meshBasicMaterial color="#333" />
+                        </mesh>
+                        <mesh position={[(1 - opponentStats.currentHealth / opponentStats.maxHealth) / 2, 0, 0.01]}>
+                            <planeGeometry args={[opponentStats.currentHealth / opponentStats.maxHealth, 0.08]} />
+                            <meshBasicMaterial color={opponentColor} />
+                        </mesh>
                     </group>
-                )}
+                </group>
             </Float>
         </group>
     );
@@ -632,7 +534,7 @@ const SceneEffects = ({ performanceProfile }: { performanceProfile: DevicePerfor
     if (!performanceProfile.enablePostProcessing || isPresenting) return null;
 
     return (
-        <EffectComposer enableNormalPass={false}>
+        <EffectComposer disableNormalPass>
             <Bloom luminanceThreshold={1} mipmapBlur intensity={performanceProfile.bloomIntensity} />
             <Vignette eskil={false} offset={0.1} darkness={performanceProfile.vignetteDarkness} />
         </EffectComposer>
@@ -663,10 +565,10 @@ const PerformanceBadge = ({
                     <span className="text-cyan-300">{fpsLabel}</span>
                 </div>
                 <div className="mt-1 text-[10px] text-gray-300">
-                    {performanceProfile.gpuTier} GPU · {performanceProfile.cpuCores} threads · {performanceProfile.networkClass}
+                    {performanceProfile.gpuTier} GPU ┬╖ {performanceProfile.cpuCores} threads ┬╖ {performanceProfile.networkClass}
                 </div>
                 <div className="text-[10px] text-gray-400">
-                    {assetStatus.plan} assets · {assetStatus.message}
+                    {assetStatus.plan} assets ┬╖ {assetStatus.message}
                 </div>
             </div>
         </div>
@@ -685,8 +587,6 @@ const App: React.FC = () => {
     const [isOnlineHost, setIsOnlineHost] = useState(true);
     const [selectedHero, setSelectedHero] = useState<HeroId>(HeroId.DARA);
     const [previewHero, setPreviewHero] = useState<HeroId | null>(null);
-    const [roomId, setRoomId] = useState<string | null>(null);
-    const [peerConnection, setPeerConnection] = useState<any>(null);
 
     // Fighters
     const [playerStats, setPlayerStats] = useState<FighterStats>(INITIAL_STATS);
@@ -713,7 +613,6 @@ const App: React.FC = () => {
     const [previewSakYantId, setPreviewSakYantId] = useState<SakYantType | null>(null); // For Menu Preview
     const [returnToFight, setReturnToFight] = useState(false);
     const [lastMatchRewards, setLastMatchRewards] = useState({ xp: 0, currency: 0, heroXp: 0, levelUp: false, heroLevelUp: false });
-    const [simulatedVR, setSimulatedVR] = useState(false);
     const [lootReward, setLootReward] = useState<LootReward | null>(null);
 
     // UI/View
@@ -743,34 +642,6 @@ const App: React.FC = () => {
     const deviceCapabilitiesRef = useRef(deviceCapabilities);
     const adaptivePresetCooldownRef = useRef(0);
 
-    useEffect(() => {
-        const handleSimKeys = (e: KeyboardEvent) => {
-            if (e.key.toLowerCase() === 'v' && e.shiftKey) {
-                setSimulatedVR(prev => {
-                    const newState = !prev;
-                    setNotification(newState ? "Entered PC VR Simulator (WASD to Move, Q/E/R/F to Attack)" : "Exited VR Simulator");
-                    setTimeout(() => setNotification(null), 3000);
-                    return newState;
-                });
-            }
-
-            if (!(window as any).simulatedKeys) (window as any).simulatedKeys = new Set();
-            (window as any).simulatedKeys.add(e.key.toLowerCase());
-        };
-
-        const handleSimKeysUp = (e: KeyboardEvent) => {
-            if ((window as any).simulatedKeys) (window as any).simulatedKeys.delete(e.key.toLowerCase());
-        };
-
-        window.addEventListener('keydown', handleSimKeys);
-        window.addEventListener('keyup', handleSimKeysUp);
-        return () => {
-            window.removeEventListener('keydown', handleSimKeys);
-            window.removeEventListener('keyup', handleSimKeysUp);
-        };
-    }, [simulatedVR]);
-
-    // Adaptive graphics logic
     const activeGraphicsPreset = graphicsMode === 'AUTO' ? autoGraphicsPreset : graphicsMode;
     const performanceProfile = useMemo(
         () => buildPerformanceProfile(deviceCapabilities, activeGraphicsPreset),
@@ -1127,11 +998,11 @@ const App: React.FC = () => {
             const newInventory: PlayerInventory = {
                 ...inventory,
                 unlockedYants: { ...inventory.unlockedYants },
-                durabilityLevels: { ...(inventory.durabilityLevels || {}) } as Record<SakYantType, number>,
-                sakYantPieces: { ...(inventory.sakYantPieces || {}) } as Record<SakYantType, number>,
-                unlockedHeroes: { ...(inventory.unlockedHeroes || {}) } as Record<HeroId, boolean>,
-                heroLevels: { ...(inventory.heroLevels || {}) } as Record<HeroId, number>,
-                heroExp: { ...(inventory.heroExp || {}) } as Record<HeroId, number>
+                durabilityLevels: { ...(inventory.durabilityLevels || {}) },
+                sakYantPieces: { ...(inventory.sakYantPieces || {}) },
+                unlockedHeroes: { ...(inventory.unlockedHeroes || {}) },
+                heroLevels: { ...(inventory.heroLevels || {}) },
+                heroExp: { ...(inventory.heroExp || {}) }
             };
 
             if (gameMode === GameMode.ADVENTURE) {
@@ -1554,7 +1425,7 @@ const App: React.FC = () => {
         
         updateStats('player', { isSpiritMode: true });
         setNotification("ANGKOR SPIRIT ACTIVATED!");
-        playSound('heal'); // Placeholder for spirit sound
+        playSound('HEAL'); // Placeholder for spirit sound
         setTimeout(() => setNotification(null), 2000);
 
         if (gameMode === GameMode.PVP_ONLINE) {
@@ -2048,26 +1919,16 @@ const App: React.FC = () => {
                         onTelemetry={handleRendererTelemetry}
                         onFpsSample={setFpsEstimate}
                     />
-                    <VRControllerHandler 
-                        onAction={handlePlayerAction} 
-                        playerPositionRef={playerPositionRef} 
-                        gameState={gameState} 
-                        onStartFight={() => startFight()} 
-                        simulated={simulatedVR}
-                    />
+                    <VRControllerHandler onAction={handlePlayerAction} playerPositionRef={playerPositionRef} />
                     <VRFloatingHUD
                         playerStats={playerStats}
                         opponentStats={opponentStats}
                         playerColor={playerCornerColor}
                         opponentColor={opponentCornerColor}
-                        gameState={gameState}
-                        onStartFight={() => startFight()}
-                        simulated={simulatedVR}
                     />
-                    <Controllers />
 
                     <ViewController
-                        isFirstPerson={isFirstPerson || simulatedVR}
+                        isFirstPerson={isFirstPerson}
                         playerPosition={playerPositionRef.current}
                         opponentPosition={opponentPositionRef.current}
                         playerAction={playerAction}
@@ -2097,7 +1958,7 @@ const App: React.FC = () => {
                             isFacingRight={true} // Default
                             comboCount={comboCount}
                             sakYant={getDisplayedSakYant()}
-                            isFirstPerson={isFirstPerson || simulatedVR}
+                            isFirstPerson={isFirstPerson}
                             isPlayer={gameState === GameState.FIGHTING || gameState === GameState.VICTORY}
                             inputState={keysPressed}
                             positionRef={playerPositionRef}
@@ -2171,7 +2032,7 @@ const App: React.FC = () => {
             )}
 
             {/* 2. GAME HUD */}
-            {gameState === GameState.FIGHTING && !simulatedVR && (
+            {gameState === GameState.FIGHTING && (
                 <div className="absolute inset-0 z-10 pointer-events-none flex flex-col justify-between px-2 pb-2 pt-10 md:pt-12 md:px-8">
                     {/* Health Bars */}
                     <div className="flex justify-between items-start w-full max-w-5xl mx-auto gap-4">
@@ -2266,70 +2127,60 @@ const App: React.FC = () => {
                             <Joystick onMove={handleJoystickMove} />
                         </div>
 
-                        {/* Action RPG Combat Controls (Round 3) */}
-                        <div className="w-[300px] h-[260px] relative pointer-events-none pr-4 pb-4">
-                            {/* Main Attack (Punch) - Bottom Right Corner */}
-                            <button
-                                className="absolute bottom-2 right-2 w-24 h-24 sm:w-28 sm:h-28 bg-blue-600/90 rounded-full border-4 border-blue-400 active:bg-blue-500 active:scale-95 transition-all shadow-[0_0_20px_rgba(37,99,235,0.6)] flex items-center justify-center pointer-events-auto z-20"
-                                onTouchStart={(e) => { e.preventDefault(); handlePlayerAction(MoveType.PUNCH); }}
-                                onMouseDown={() => handlePlayerAction(MoveType.PUNCH)}
-                            >
-                                <span className="font-black text-white text-2xl drop-shadow-[0_2px_4px_rgba(0,0,0,0.8)] leading-none">{MOVES[MoveType.PUNCH].khmerName}</span>
-                            </button>
-
-                            {/* Secondary Attack 1 (Kick) - Just left of Main */}
-                            <button
-                                className="absolute bottom-2 right-[110px] sm:right-[130px] w-16 h-16 sm:w-18 sm:h-18 bg-yellow-600/90 rounded-full border-2 border-yellow-400 active:bg-yellow-500 active:scale-95 transition-all shadow-[0_0_15px_rgba(202,138,4,0.5)] flex items-center justify-center pointer-events-auto z-10"
-                                onTouchStart={(e) => { e.preventDefault(); handlePlayerAction(MoveType.KICK); }}
-                                onMouseDown={() => handlePlayerAction(MoveType.KICK)}
-                            >
-                                <span className="font-bold text-white text-lg drop-shadow-md">{MOVES[MoveType.KICK].khmerName}</span>
-                            </button>
-
-                            {/* Secondary Attack 2 (Knee) - Top Left Arc */}
-                            <button
-                                className="absolute bottom-[80px] sm:bottom-[90px] right-[95px] sm:right-[115px] w-14 h-14 sm:w-16 sm:h-16 bg-purple-600/90 rounded-full border-2 border-purple-400 active:bg-purple-500 active:scale-95 transition-all shadow-[0_0_15px_rgba(147,51,234,0.5)] flex items-center justify-center pointer-events-auto z-10"
-                                onTouchStart={(e) => { e.preventDefault(); handlePlayerAction(MoveType.KNEE); }}
-                                onMouseDown={() => handlePlayerAction(MoveType.KNEE)}
-                            >
-                                <span className="font-bold text-white text-sm sm:text-base drop-shadow-md">{MOVES[MoveType.KNEE].khmerName}</span>
-                            </button>
-
-                            {/* Secondary Attack 3 (Elbow) - Top Center Arc */}
-                            <button
-                                className="absolute bottom-[130px] sm:bottom-[150px] right-[45px] sm:right-[55px] w-14 h-14 sm:w-16 sm:h-16 bg-red-600/90 rounded-full border-2 border-red-400 active:bg-red-500 active:scale-95 transition-all shadow-[0_0_15px_rgba(220,38,38,0.5)] flex items-center justify-center pointer-events-auto z-10"
-                                onTouchStart={(e) => { e.preventDefault(); handlePlayerAction(MoveType.ELBOW); }}
-                                onMouseDown={() => handlePlayerAction(MoveType.ELBOW)}
-                            >
-                                <span className="font-bold text-white text-sm sm:text-base drop-shadow-md">{MOVES[MoveType.ELBOW].khmerName}</span>
-                            </button>
-
-                            {/* Secondary Attack 4 (Uppercut) - Far Top Arc */}
-                            <button
-                                className="absolute bottom-[165px] sm:bottom-[180px] right-2 w-12 h-12 sm:w-14 sm:h-14 bg-indigo-800/90 rounded-full border-2 border-indigo-500 active:bg-indigo-700 active:scale-95 transition-all shadow-[0_0_15px_rgba(67,56,202,0.5)] flex items-center justify-center pointer-events-auto z-10"
-                                onTouchStart={(e) => { e.preventDefault(); handlePlayerAction(MoveType.UPPERCUT); }}
-                                onMouseDown={() => handlePlayerAction(MoveType.UPPERCUT)}
-                            >
-                                <span className="font-bold text-white text-[10px] sm:text-xs drop-shadow-md">{MOVES[MoveType.UPPERCUT].khmerName}</span>
-                            </button>
-
-                            {/* Defensive Options - Nestled below the main cluster */}
-                            <div className="absolute -bottom-2 sm:-bottom-4 left-0 sm:-left-4 flex gap-2 pointer-events-auto z-10">
+                        <div className="w-1/3 flex flex-col items-end gap-4 pr-4 pb-4">
+                            <div className="flex gap-4">
                                 <button
-                                    className="w-12 h-12 bg-green-600/90 rounded-full border-2 border-green-400 active:bg-green-500 active:scale-95 transition-all shadow-lg flex items-center justify-center"
-                                    onTouchStart={(e) => { e.preventDefault(); handlePlayerAction(MoveType.BLOCK); }}
-                                    onMouseDown={() => handlePlayerAction(MoveType.BLOCK)}
+                                    className="w-16 h-16 bg-blue-600/80 rounded-full border-4 border-blue-400 active:bg-blue-500 active:scale-95 transition-all shadow-lg flex items-center justify-center"
+                                    onTouchStart={() => handlePlayerAction(MoveType.PUNCH)}
+                                    onMouseDown={() => handlePlayerAction(MoveType.PUNCH)}
                                 >
-                                    <Shield size={20} color="white" />
+                                    <span className="font-bold text-white drop-shadow-md">{MOVES[MoveType.PUNCH].khmerName}</span>
                                 </button>
                                 <button
-                                    className="w-12 h-12 bg-gray-600/90 rounded-full border-2 border-gray-400 active:bg-gray-500 active:scale-95 transition-all shadow-lg flex items-center justify-center"
-                                    onTouchStart={(e) => { e.preventDefault(); handlePlayerAction(MoveType.ROLL); }}
-                                    onMouseDown={() => handlePlayerAction(MoveType.ROLL)}
+                                    className="w-16 h-16 bg-yellow-600/80 rounded-full border-4 border-yellow-400 active:bg-yellow-500 active:scale-95 transition-all shadow-lg flex items-center justify-center mt-[-20px]"
+                                    onTouchStart={() => handlePlayerAction(MoveType.KICK)}
+                                    onMouseDown={() => handlePlayerAction(MoveType.KICK)}
                                 >
-                                    <Move size={18} color="white" />
+                                    <span className="font-bold text-white drop-shadow-md">{MOVES[MoveType.KICK].khmerName}</span>
                                 </button>
                             </div>
+                            <div className="flex gap-4">
+                                <button
+                                    className="w-14 h-14 bg-green-600/80 rounded-full border-4 border-green-400 active:bg-green-500 active:scale-95 transition-all shadow-lg flex items-center justify-center"
+                                    onTouchStart={() => handlePlayerAction(MoveType.BLOCK)}
+                                    onMouseDown={() => handlePlayerAction(MoveType.BLOCK)}
+                                >
+                                    <Shield size={24} color="white" />
+                                </button>
+                                <button
+                                    className="w-14 h-14 bg-blue-800/80 rounded-full border-4 border-blue-600 active:bg-blue-700 active:scale-95 transition-all shadow-lg flex items-center justify-center"
+                                    onTouchStart={() => handlePlayerAction(MoveType.UPPERCUT)}
+                                    onMouseDown={() => handlePlayerAction(MoveType.UPPERCUT)}
+                                >
+                                    <span className="font-bold text-white text-[10px] drop-shadow-md">{MOVES[MoveType.UPPERCUT].khmerName}</span>
+                                </button>
+                                <button
+                                    className="w-14 h-14 bg-purple-600/80 rounded-full border-4 border-purple-400 active:bg-purple-500 active:scale-95 transition-all shadow-lg flex items-center justify-center"
+                                    onTouchStart={() => handlePlayerAction(MoveType.KNEE)}
+                                    onMouseDown={() => handlePlayerAction(MoveType.KNEE)}
+                                >
+                                    <span className="font-bold text-white text-xs drop-shadow-md">{MOVES[MoveType.KNEE].khmerName}</span>
+                                </button>
+                                <button
+                                    className="w-14 h-14 bg-red-600/80 rounded-full border-4 border-red-400 active:bg-red-500 active:scale-95 transition-all shadow-lg flex items-center justify-center"
+                                    onTouchStart={() => handlePlayerAction(MoveType.ELBOW)}
+                                    onMouseDown={() => handlePlayerAction(MoveType.ELBOW)}
+                                >
+                                    <span className="font-bold text-white text-xs drop-shadow-md">{MOVES[MoveType.ELBOW].khmerName}</span>
+                                </button>
+                            </div>
+                            <button
+                                className="w-12 h-12 bg-gray-600/80 rounded-full border-2 border-gray-400 active:bg-gray-500 active:scale-95 transition-all shadow-lg flex items-center justify-center mt-2"
+                                onTouchStart={() => handlePlayerAction(MoveType.ROLL)}
+                                onMouseDown={() => handlePlayerAction(MoveType.ROLL)}
+                            >
+                                <Move size={20} color="white" />
+                            </button>
                         </div>
                     </div>
 
@@ -2380,106 +2231,104 @@ const App: React.FC = () => {
                     <div className="w-full md:w-1/2 h-1/4 md:h-full pointer-events-none" />
                     
                     {/* Right Half: UI Panel - larger on mobile to fill screen */}
-                    <div className="w-full md:w-1/2 h-3/4 md:h-full bg-gradient-to-l from-black via-black/80 to-transparent flex flex-col justify-center p-3 sm:p-4 md:p-12 shadow-2xl backdrop-blur-sm border-l border-gray-800/50 overflow-y-auto">
-                        <div className="mb-2 md:mb-12 relative text-center md:text-left mt-0 md:mt-0">
-                            <div className="absolute -left-4 top-0 w-1 h-full bg-yellow-500 rounded-full opacity-50 hidden md:block" />
-                            <h1 className="text-3xl sm:text-4xl md:text-6xl lg:text-8xl font-black text-transparent bg-clip-text bg-gradient-to-r from-blue-400 via-cyan-200 to-blue-500 italic tracking-tighter drop-shadow-2xl">
+                    <div className="w-full md:w-1/2 h-3/4 md:h-full bg-gradient-to-l from-black via-black/80 to-transparent flex flex-col justify-center p-6 md:p-12 shadow-2xl backdrop-blur-sm border-l border-gray-800/50 overflow-y-auto">
+                        <div className="mb-6 md:mb-10 text-center md:text-left">
+                            <h1 className="text-5xl md:text-7xl font-black text-transparent bg-clip-text bg-gradient-to-r from-blue-500 to-cyan-300 italic tracking-tighter drop-shadow-lg">
                                 KUN KHMER
                             </h1>
-                            <h2 className="text-xl sm:text-2xl md:text-4xl lg:text-5xl font-black text-white italic tracking-tighter -mt-1 sm:-mt-2 md:-mt-5 flex items-center justify-center md:justify-start gap-4">
+                            <h2 className="text-3xl md:text-5xl font-black text-white italic tracking-tighter -mt-2">
                                 FIGHT 3D
-                                <span className="text-[8px] sm:text-[10px] font-mono text-yellow-500 bg-yellow-500/10 px-2 py-1 rounded border border-yellow-500/20 italic tracking-widest mt-1 hidden md:block">V1.2</span>
                             </h2>
-                            <div className="h-1 w-24 sm:w-32 bg-yellow-500 mt-2 rounded-full mx-auto md:mx-0 block md:hidden"></div>
+                            <div className="h-1 w-32 bg-yellow-500 mt-4 rounded-full mx-auto md:mx-0"></div>
                         </div>
 
                         {/* Profile Summary */}
-                        <div className="w-full mb-3 md:mb-6 bg-gray-900/50 p-2 sm:p-3 md:p-4 rounded-xl border border-gray-700 flex items-center gap-2 sm:gap-4 hover:border-gray-500 transition-colors cursor-default">
-                            <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-full bg-blue-600 flex items-center justify-center font-bold text-lg sm:text-xl border-2 border-white shadow-lg">
+                        <div className="w-full mb-6 bg-gray-900/50 p-4 rounded-xl border border-gray-700 flex items-center gap-4 hover:border-gray-500 transition-colors cursor-default">
+                            <div className="w-12 h-12 rounded-full bg-blue-600 flex items-center justify-center font-bold text-xl border-2 border-white shadow-lg">
                                 {playerProfile.level}
                             </div>
                             <div className="flex-1">
-                                <div className="flex justify-between text-xs sm:text-sm text-gray-400 font-bold mb-1">
+                                <div className="flex justify-between text-sm text-gray-400 font-bold mb-1">
                                     <span>LEVEL PROGRESS</span>
                                     <span>{playerProfile.currentExp} / {playerProfile.maxExp} XP</span>
                                 </div>
-                                <div className="h-1.5 sm:h-2 bg-gray-700 rounded-full overflow-hidden">
+                                <div className="h-2 bg-gray-700 rounded-full overflow-hidden">
                                     <div className="h-full bg-blue-500" style={{ width: `${(playerProfile.currentExp / playerProfile.maxExp) * 100}%` }}></div>
                                 </div>
                             </div>
-                            <div className="flex flex-col items-end hidden sm:flex">
-                                <div className="flex items-center gap-1 text-yellow-400 font-bold font-mono text-base sm:text-lg">
-                                    <Coins size={14} className="sm:w-4 sm:h-4" /> {playerProfile.currency}
+                            <div className="flex flex-col items-end">
+                                <div className="flex items-center gap-1 text-yellow-400 font-bold font-mono text-lg">
+                                    <Coins size={16} /> {playerProfile.currency}
                                 </div>
-                                <span className="text-[8px] sm:text-[10px] text-gray-500 uppercase">Prak Doung</span>
+                                <span className="text-[10px] text-gray-500 uppercase">Prak Doung</span>
                             </div>
                         </div>
 
                         {/* Main Actions - Stacked for clarity */}
-                        <div className="w-full space-y-1 sm:space-y-2 md:space-y-3 mb-3 md:mb-8">
+                        <div className="w-full space-y-3 mb-8">
                             <button
                                 onClick={() => { setGameMode(GameMode.PVE); startFight(GameMode.PVE); }}
-                                className="w-full relative group overflow-hidden bg-gray-900 rounded-lg sm:rounded-xl p-0.5 sm:p-1 transition-all hover:scale-[1.02] shadow-sm sm:shadow-lg"
+                                className="w-full relative group overflow-hidden bg-gray-900 rounded-xl p-1 transition-all hover:scale-[1.02] shadow-lg"
                             >
                                 <div className="absolute inset-0 bg-gradient-to-r from-blue-600 to-blue-400 opacity-0 group-hover:opacity-20 transition-opacity" />
-                                <div className="relative bg-gray-900/80 backdrop-blur-sm p-2 sm:p-4 flex items-center justify-between border border-gray-700 group-hover:border-blue-500/50 rounded-md sm:rounded-lg">
-                                    <div className="flex items-center gap-2 sm:gap-4">
-                                        <div className="p-1.5 sm:p-3 bg-blue-900/30 rounded-md sm:rounded-lg text-blue-400 border border-blue-500/30">
-                                            <Sword size={18} className="sm:w-6 sm:h-6" />
+                                <div className="relative bg-gray-900/80 backdrop-blur-sm p-4 flex items-center justify-between border border-gray-700 group-hover:border-blue-500/50 rounded-lg">
+                                    <div className="flex items-center gap-4">
+                                        <div className="p-3 bg-blue-900/30 rounded-lg text-blue-400 border border-blue-500/30">
+                                            <Sword size={24} />
                                         </div>
                                         <div className="text-left">
-                                            <div className="text-base sm:text-lg font-black italic text-white group-hover:text-blue-200 leading-tight">QUICK FIGHT</div>
-                                            <div className="text-[8px] sm:text-[10px] font-bold text-blue-400 tracking-wider">TRAINING MODE</div>
+                                            <div className="text-lg font-black italic text-white group-hover:text-blue-200">QUICK FIGHT</div>
+                                            <div className="text-[10px] font-bold text-blue-400 tracking-wider">TRAINING MODE</div>
                                         </div>
                                     </div>
-                                    <ChevronRight className="text-blue-500 opacity-50 sm:opacity-0 group-hover:opacity-100 transition-opacity transform group-hover:translate-x-1 w-4 h-4 sm:w-6 sm:h-6" />
+                                    <ChevronRight className="text-blue-500 opacity-0 group-hover:opacity-100 transition-opacity transform group-hover:translate-x-1" />
                                 </div>
                             </button>
 
                             <button
                                 onClick={() => { setGameMode(GameMode.ADVENTURE); setGameState(GameState.ADVENTURE_MAP); }}
-                                className="w-full relative group overflow-hidden bg-gray-900 rounded-lg sm:rounded-xl p-0.5 sm:p-1 transition-all hover:scale-[1.02] shadow-sm sm:shadow-lg"
+                                className="w-full relative group overflow-hidden bg-gray-900 rounded-xl p-1 transition-all hover:scale-[1.02] shadow-lg"
                             >
                                 <div className="absolute inset-0 bg-gradient-to-r from-yellow-600 to-orange-400 opacity-0 group-hover:opacity-20 transition-opacity" />
-                                <div className="relative bg-gray-900/80 backdrop-blur-sm p-2 sm:p-4 flex items-center justify-between border border-gray-700 group-hover:border-yellow-500/50 rounded-md sm:rounded-lg">
-                                    <div className="flex items-center gap-2 sm:gap-4">
-                                        <div className="p-1.5 sm:p-3 bg-yellow-900/30 rounded-md sm:rounded-lg text-yellow-400 border border-yellow-500/30">
-                                            <Map size={18} className="sm:w-6 sm:h-6" />
+                                <div className="relative bg-gray-900/80 backdrop-blur-sm p-4 flex items-center justify-between border border-gray-700 group-hover:border-yellow-500/50 rounded-lg">
+                                    <div className="flex items-center gap-4">
+                                        <div className="p-3 bg-yellow-900/30 rounded-lg text-yellow-400 border border-yellow-500/30">
+                                            <Map size={24} />
                                         </div>
                                         <div className="text-left">
-                                            <div className="text-base sm:text-lg font-black italic text-white group-hover:text-yellow-200 leading-tight">ADVENTURE</div>
-                                            <div className="text-[8px] sm:text-[10px] font-bold text-yellow-400 tracking-wider">STORY CAMPAIGN</div>
+                                            <div className="text-lg font-black italic text-white group-hover:text-yellow-200">ADVENTURE</div>
+                                            <div className="text-[10px] font-bold text-yellow-400 tracking-wider">STORY CAMPAIGN</div>
                                         </div>
                                     </div>
-                                    <div className="flex items-center gap-1 sm:gap-3">
-                                        <span className="text-[10px] sm:text-xs text-gray-500 font-mono">Stage {playerProfile.adventureStage || 0}</span>
-                                        <ChevronRight className="text-yellow-500 opacity-50 sm:opacity-0 group-hover:opacity-100 transition-opacity transform group-hover:translate-x-1 w-4 h-4 sm:w-6 sm:h-6" />
+                                    <div className="flex items-center gap-3">
+                                        <span className="text-xs text-gray-500 font-mono">Stage {playerProfile.adventureStage || 0}</span>
+                                        <ChevronRight className="text-yellow-500 opacity-0 group-hover:opacity-100 transition-opacity transform group-hover:translate-x-1" />
                                     </div>
                                 </div>
                             </button>
 
                             <button
                                 onClick={() => { setGameMode(GameMode.PVP_ONLINE); setGameState(GameState.ONLINE_LOBBY); }}
-                                className="w-full relative group overflow-hidden bg-gray-900 rounded-lg sm:rounded-xl p-0.5 sm:p-1 transition-all hover:scale-[1.02] shadow-sm sm:shadow-lg"
+                                className="w-full relative group overflow-hidden bg-gray-900 rounded-xl p-1 transition-all hover:scale-[1.02] shadow-lg"
                             >
                                 <div className="absolute inset-0 bg-gradient-to-r from-purple-600 to-pink-400 opacity-0 group-hover:opacity-20 transition-opacity" />
-                                <div className="relative bg-gray-900/80 backdrop-blur-sm p-2 sm:p-4 flex items-center justify-between border border-gray-700 group-hover:border-purple-500/50 rounded-md sm:rounded-lg">
-                                    <div className="flex items-center gap-2 sm:gap-4">
-                                        <div className="p-1.5 sm:p-3 bg-purple-900/30 rounded-md sm:rounded-lg text-purple-400 border border-purple-500/30">
-                                            <Globe size={18} className="sm:w-6 sm:h-6" />
+                                <div className="relative bg-gray-900/80 backdrop-blur-sm p-4 flex items-center justify-between border border-gray-700 group-hover:border-purple-500/50 rounded-lg">
+                                    <div className="flex items-center gap-4">
+                                        <div className="p-3 bg-purple-900/30 rounded-lg text-purple-400 border border-purple-500/30">
+                                            <Globe size={24} />
                                         </div>
                                         <div className="text-left">
-                                            <div className="text-base sm:text-lg font-black italic text-white group-hover:text-purple-200 leading-tight">ONLINE PVP</div>
-                                            <div className="text-[8px] sm:text-[10px] font-bold text-purple-400 tracking-wider">CHALLENGE FRIENDS</div>
+                                            <div className="text-lg font-black italic text-white group-hover:text-purple-200">ONLINE PVP</div>
+                                            <div className="text-[10px] font-bold text-purple-400 tracking-wider">CHALLENGE FRIENDS</div>
                                         </div>
                                     </div>
-                                    <ChevronRight className="text-purple-500 opacity-50 sm:opacity-0 group-hover:opacity-100 transition-opacity transform group-hover:translate-x-1 w-4 h-4 sm:w-6 sm:h-6" />
+                                    <ChevronRight className="text-purple-500 opacity-0 group-hover:opacity-100 transition-opacity transform group-hover:translate-x-1" />
                                 </div>
                             </button>
                         </div>
 
                         {/* Loadout / Customization */}
-                        <div className="grid grid-cols-4 gap-2 w-full">
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 w-full">
                             <button
                                 onClick={() => setGameState(GameState.CHARACTER_SELECT)}
                                 className="bg-gray-800 hover:bg-gray-700 border border-gray-700 hover:border-gray-500 rounded-lg p-3 flex flex-col items-center gap-2 transition-all group"
@@ -2507,7 +2356,7 @@ const App: React.FC = () => {
                                 {/* Overlay for icon/text since VRButton takes over click/text usually, but we made text transparent in CSS */}
                                 <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-2">
                                     <Glasses size={20} className="text-purple-400 group-hover:scale-110 transition-transform" />
-                                    <span className="text-[10px] font-bold uppercase tracking-wide text-gray-400 group-hover:text-white">របៀប VR</span>
+                                    <span className="text-[10px] font-bold uppercase tracking-wide text-gray-400 group-hover:text-white">ß₧Üß₧ößƒÇß₧ö VR</span>
                                 </div>
                             </div>
 
@@ -2522,7 +2371,7 @@ const App: React.FC = () => {
 
                         {/* Footer */}
                         <div className="mt-auto w-full pt-8 flex items-center justify-between text-xs text-gray-600 border-t border-gray-800/50 mt-6">
-                            <span className="font-mono">VER 1.2.0 • ANGKOR EDITION</span>
+                            <span className="font-mono">VER 1.2.0 ΓÇó ANGKOR EDITION</span>
                             <button onClick={handleToggleAudio} className="hover:text-white transition-colors flex items-center gap-1">
                                 {isAudioOn ? <><Volume2 size={14} /> AUDIO ON</> : <><VolumeX size={14} /> AUDIO OFF</>}
                             </button>
@@ -2586,7 +2435,7 @@ const App: React.FC = () => {
             {gameState === GameState.GAME_OVER && (
                 <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-md">
                     <div className="text-center animate-in zoom-in duration-500">
-                        <div className="text-6xl mb-4">💀</div>
+                        <div className="text-6xl mb-4">≡ƒÆÇ</div>
                         <h1 className="text-6xl font-black text-red-600 italic tracking-tighter mb-2">K.O.</h1>
                         <p className="text-xl text-gray-400 mb-8 font-serif">Train harder, warrior.</p>
                         <button
@@ -2658,8 +2507,6 @@ const App: React.FC = () => {
             {showHowToPlay && (
                 <HowToPlay onBack={() => setShowHowToPlay(false)} />
             )}
-
-            <MobileOverlay />
 
         </div>
     );

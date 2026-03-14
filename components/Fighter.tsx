@@ -1682,8 +1682,8 @@ const Fighter: React.FC<FighterProps> = ({
         }
     });
 
-    // VR Visibility logic: Hide torso and head if local player in VR
-    const isBodyVisible = !(isPlayer && isPresenting);
+    // VR/First-Person Visibility logic: Hide core body (torso/head) for the local player
+    const isBodyVisible = !(isPlayer && (isPresenting || isFirstPerson));
 
     return (
         <group ref={groupRef} position={position} castShadow>
@@ -1760,8 +1760,8 @@ const Fighter: React.FC<FighterProps> = ({
                     <>
                         {/* PROCEDURAL BODY */}
                         <group ref={headRef} position={[0, 1.65, 0.05]} rotation={[0.1, 0, 0]}>
-                            {/* Hide head in First Person View only for Player or in VR */}
-                            {!(isPlayer && (isFirstPerson || isPresenting)) && (
+                            {/* Hide head in First Person View or VR */}
+                            {isBodyVisible && (
                                 <group>
                                     <mesh castShadow receiveShadow>
                                         <sphereGeometry args={[0.125, detailSegments, detailSegments]} />
@@ -1802,7 +1802,7 @@ const Fighter: React.FC<FighterProps> = ({
 
                         <group ref={torsoRef} position={[0, 1.05, 0]}>
                             {/* Hide torso in First Person View or VR, but keep arms visible */}
-                            {isBodyVisible && !isFirstPerson && (
+                            {isBodyVisible && (
                                 <group>
                                     {/* Realistic Torso - segmented for better bending */}
                                     <group position={[0, 0.32, 0]}>
