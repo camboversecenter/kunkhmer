@@ -60,6 +60,36 @@ export enum HeroId {
     VIBOL = 'VIBOL'
 }
 
+export enum CombatStyle {
+    NAK_DAL = 'NAK_DAL',     // Puncher
+    NAK_TOAT = 'NAK_TOAT',   // Kicker
+    NAK_KAENG = 'NAK_KAENG' // Elbowist
+}
+
+export enum ProvinceId {
+    PP = 'PHNOM_PENH',
+    SR = 'SIEM_REAP',
+    BTB = 'BATTAMBANG',
+    KPC = 'KAMPONG_CHAM',
+    KPS = 'KAMPONG_SPEU',
+    KPT = 'KAMPOT',
+    KEP = 'KEP',
+    KOK = 'KOH_KONG',
+    KRT = 'KRATIE',
+    MDK = 'MONDULKIRI',
+    BMC = 'BANTEAY_MEANCHEY',
+    ODC = 'ODDAR_MEANCHEY',
+    PLN = 'PAILIN',
+    PREV = 'PREAH_VIHEAR',
+    PRV = 'PREY_VENG',
+    PS = 'PURSAT',
+    RTK = 'RATANAKIRI',
+    ST = 'STUNG_TRENG',
+    SVR = 'SVAY_RIENG',
+    TKM = 'TAKEO',
+    TBK = 'TBONG_KHMUM'
+}
+
 export interface HeroAttributes {
     strength: number; // Punch/Elbow Dmg
     agility: number;  // Speed/Stamina
@@ -140,6 +170,9 @@ export interface FighterStats {
   stamina: number;
   maxStamina: number;
   staminaRegenMultiplier?: number;
+  spiritGauge: number;
+  isSpiritMode: boolean;
+  combatStyle?: CombatStyle;
   ritualBuff?: RitualBuff; // New: Spirit Buff data
   // Dynamic modifiers based on Hero selection
   damageModifiers?: {
@@ -252,6 +285,7 @@ export interface UserProfile {
     email: string;
     picture: string;
     sub?: string;
+    provinceId?: ProvinceId;
 }
 
 export interface PlayerProfile {
@@ -274,6 +308,10 @@ export interface PeerData {
     stats?: Partial<FighterStats>;
     health?: number;
     stamina?: number;
+    spirit?: number;
+    isSpiritMode?: boolean;
+    combatStyle?: CombatStyle;
+    provinceId?: ProvinceId;
     sakYant?: any;
     damage?: number;
     isBlocked?: boolean;

@@ -2,16 +2,21 @@
 import React, { useState, useEffect } from 'react';
 import { ChevronLeft, Wifi, Copy, Play, Loader, Users, CheckCircle } from 'lucide-react';
 import { initializePeer, connectToPeer, destroyPeer } from '../services/peerService';
-import { PeerData } from '../types';
+import { PeerData, ProvinceId } from '../types';
+import { PROVINCES } from '../constants';
+import { Map, Star, Trophy, ChevronDown } from 'lucide-react';
 
 interface OnlineLobbyProps {
   onBack: () => void;
   onPeerData: (data: PeerData, peerId: string) => void;
   onGameStart: (isHost: boolean, roomId: string, connection: any) => void;
+  currentProvince: ProvinceId;
+  onProvinceSelect: (provinceId: ProvinceId) => void;
 }
 
-const OnlineLobby: React.FC<OnlineLobbyProps> = ({ onBack, onPeerData, onGameStart }) => {
+const OnlineLobby: React.FC<OnlineLobbyProps> = ({ onBack, onPeerData, onGameStart, currentProvince, onProvinceSelect }) => {
   const [mode, setMode] = useState<'SELECT' | 'HOST' | 'JOIN'>('SELECT');
+  const [showProvinceSelect, setShowProvinceSelect] = useState(false);
   const [roomId, setRoomId] = useState<string>('');
   const [joinId, setJoinId] = useState<string>('');
   const [status, setStatus] = useState<string>('');
@@ -102,7 +107,75 @@ const OnlineLobby: React.FC<OnlineLobbyProps> = ({ onBack, onPeerData, onGameSta
         
         {mode === 'SELECT' && (
           <div className="flex flex-col gap-6 w-full max-w-md animate-in fade-in slide-in-from-bottom-8">
-            <h1 className="text-4xl font-black text-center mb-8 italic">CHOOSE MODE</h1>
+            <h1 className="text-4xl font-black text-center mb-4 italic tracking-tighter">ONLINE ARENA</h1>
+
+            {/* PROVINCE SELECTION */}
+            <div className="bg-gray-800/80 backdrop-blur-md p-4 rounded-xl border border-gray-700 shadow-lg mb-2 relative">
+                <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 bg-blue-600 rounded-lg flex items-center justify-center">
+                            <Map size={20} />
+                        </div>
+                        <div>
+                            <div className="text-[10px] font-bold text-blue-400 uppercase tracking-widest">Your Province</div>
+                            <div className="text-sm font-bold">{PROVINCES[currentProvince]}</div>
+                        </div>
+                    </div>
+                    <button 
+                        onClick={() => setShowProvinceSelect(!showProvinceSelect)}
+                        className="p-2 hover:bg-gray-700 rounded-lg transition-colors"
+                    >
+                        <ChevronDown className={`w-5 h-5 transition-transform ${showProvinceSelect ? 'rotate-180' : ''}`} />
+                    </button>
+                </div>
+
+                {showProvinceSelect && (
+                    <div className="absolute top-full left-0 right-0 mt-2 bg-gray-800 border border-gray-700 rounded-xl shadow-2xl z-50 max-h-48 overflow-y-auto grid grid-cols-2 p-2 gap-1 animate-in slide-in-from-top-2">
+                        {Object.entries(PROVINCES).map(([id, name]) => (
+                            <button
+                                key={id}
+                                onClick={() => {
+                                    onProvinceSelect(id as ProvinceId);
+                                    setShowProvinceSelect(false);
+                                }}
+                                className={`
+                                    text-[10px] font-bold py-2 px-3 rounded-lg text-left transition-all
+                                    ${currentProvince === id ? 'bg-blue-600 text-white' : 'hover:bg-gray-700 text-gray-300'}
+                                `}
+                            >
+                                {name}
+                            </button>
+                        ))}
+                    </div>
+                )}
+            </div>
+
+            {/* TERRITORY LEADERBOARD (MOCK) */}
+            <div className="bg-gradient-to-br from-yellow-500/10 to-orange-500/10 p-4 rounded-xl border border-yellow-500/20 mb-2">
+                 <h3 className="text-[10px] font-bold text-yellow-500 uppercase tracking-widest mb-3 flex items-center gap-2">
+                     <Trophy size={12} /> Territory War Leaderboard
+                 </h3>
+                 <div className="space-y-2">
+                     {[
+                        { name: 'Phnom Penh', score: 12540, trend: 'up' },
+                        { name: 'Siem Reap', score: 9820, trend: 'up' },
+                        { name: 'Battambang', score: 7450, trend: 'down' }
+                     ].map((p, i) => (
+                        <div key={i} className="flex items-center justify-between text-xs">
+                            <div className="flex items-center gap-2">
+                                <span className={`w-4 h-4 rounded flex items-center justify-center font-bold ${i === 0 ? 'bg-yellow-500 text-black' : 'bg-gray-800 text-gray-400'}`}>
+                                    {i + 1}
+                                </span>
+                                <span className="font-semibold">{p.name}</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                                <span className="font-mono">{p.score.toLocaleString()} pts</span>
+                                <Star size={10} className="text-yellow-500 fill-yellow-500" />
+                            </div>
+                        </div>
+                     ))}
+                 </div>
+            </div>
             
             <button 
               onClick={handleHost}

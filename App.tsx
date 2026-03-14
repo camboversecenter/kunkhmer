@@ -11,6 +11,8 @@ import {
     DevicePerformanceProfile,
     Difficulty,
     FighterStats,
+    SakYantData,
+    SakYantType,
     GameMode,
     GameState,
     GraphicsMode,
@@ -24,12 +26,12 @@ import {
     PeerData,
     PlayerInventory,
     PlayerProfile,
-    RendererTelemetry,
-    SakYantType,
+    CombatStyle,
     SceneryTheme,
+    ProvinceId,
     UserProfile
 } from './types';
-import { MOVES, SAK_YANT_DB, FIGHTER_CONFIG, ADVENTURE_OPPONENTS, GAME_ECONOMY, INITIAL_INVENTORY, HEROES_DB } from './constants';
+import { MOVES, HEROES_DB, SAK_YANT_DB, INITIAL_STATS, INITIAL_PROFILE, INITIAL_INVENTORY, GAME_ECONOMY, COMBAT_STYLE_MODIFIERS, PROVINCES } from './constants';
 import Fighter from './components/Fighter';
 import Arena from './components/Arena';
 import Scenery from './components/Scenery';
@@ -54,7 +56,7 @@ import {
     scheduleOptionalAssetDownloads,
     shiftGraphicsPreset
 } from './services/performanceService';
-import { Sword, Trophy, Book, ChevronLeft, Lock, Check, Globe, User, Copy, Wifi, WifiOff, Volume2, VolumeX, AlertCircle, Glasses, Home, Mic, Monitor, HelpCircle, Eye, EyeOff, Zap, MessageSquare, Map, Star, Settings, Shield, Move, Coins, Crown, ArrowUp, ChevronRight, Flame, Music } from 'lucide-react';
+import { Sword, Trophy, Book, ChevronLeft, Lock, Check, Globe, User, Copy, Wifi, WifiOff, Volume2, VolumeX, AlertCircle, Glasses, Home, Mic, Monitor, HelpCircle, Eye, EyeOff, Zap, MessageSquare, Map, Star, Settings, Shield, Move, Coins, Crown, ArrowUp, ChevronRight, Flame, Music, Activity, BarChart3, Swords } from 'lucide-react';
 
 const SCENERY_THEMES: SceneryTheme[] = [
     {
@@ -144,10 +146,10 @@ const VRControllerHandler = ({
     // Trigger attacks
     useXREvent('selectstart', (e) => {
         if (!isPresenting) return;
-        // Right hand usually handles primary attacks
-        if (e.pointer_id === rightController?.id) {
+        // Check which controller triggered the event
+        if (e.controller === rightController) {
             onAction(MoveType.PUNCH);
-        } else {
+        } else if (e.controller === leftController) {
             onAction(MoveType.KICK);
         }
     });
@@ -195,6 +197,29 @@ const VRControllerHandler = ({
         // --- POSITION SYNC ---
         // Keep the game logic's player position in sync with XR rig
         playerPositionRef.current.copy(player.position);
+
+        // --- GESTURE DETECTION ---
+        if (leftController && rightController) {
+            const leftPos = leftController.controller.position;
+            const rightPos = rightController.controller.position;
+            const headPos = state.camera.position;
+
+            // 1. High Guard (Both hands near face)
+            const distL = leftPos.distanceTo(headPos);
+            const distR = rightPos.distanceTo(headPos);
+            
+            if (distL < 0.3 && distR < 0.3) {
+                onAction(MoveType.BLOCK);
+            }
+
+            // 2. Spirit Trigger (Both hands high up and wide)
+            if (leftPos.y > headPos.y + 0.3 && rightPos.y > headPos.y + 0.3) {
+                const handDist = leftPos.distanceTo(rightPos);
+                if (handDist > 0.6) {
+                    onAction(MoveType.TAUNT); // Use taunt as proxy or call activateSpiritMode directly if we pass it
+                }
+            }
+        }
 
         // --- ADDITIONAL BUTTON MAPPING ---
         if (rightController?.inputSource?.gamepad) {
@@ -505,7 +530,8 @@ const RuntimePerformanceBridge = ({
 };
 
 const SceneEffects = ({ performanceProfile }: { performanceProfile: DevicePerformanceProfile }) => {
-    if (!performanceProfile.enablePostProcessing) return null;
+    const { isPresenting } = useXR();
+    if (!performanceProfile.enablePostProcessing || isPresenting) return null;
 
     return (
         <EffectComposer disableNormalPass>
@@ -514,6 +540,7 @@ const SceneEffects = ({ performanceProfile }: { performanceProfile: DevicePerfor
         </EffectComposer>
     )
 }
+
 
 const PerformanceBadge = ({
     graphicsMode,
@@ -581,6 +608,8 @@ const App: React.FC = () => {
     const [inventory, setInventory] = useState<PlayerInventory>(INITIAL_INVENTORY);
     const [playerProfile, setPlayerProfile] = useState<PlayerProfile>(INITIAL_PROFILE);
     const [equippedSakYantId, setEquippedSakYantId] = useState<SakYantType | null>(SakYantType.HANUMAN);
+    const [equippedStyle, setEquippedStyle] = useState<CombatStyle>(CombatStyle.NAK_DAL);
+    const [selectedProvince, setSelectedProvince] = useState<ProvinceId>(ProvinceId.PP);
     const [previewSakYantId, setPreviewSakYantId] = useState<SakYantType | null>(null); // For Menu Preview
     const [returnToFight, setReturnToFight] = useState(false);
     const [lastMatchRewards, setLastMatchRewards] = useState({ xp: 0, currency: 0, heroXp: 0, levelUp: false, heroLevelUp: false });
@@ -756,6 +785,23 @@ const App: React.FC = () => {
             if (pRegen > 0 && playerStatsRef.current.stamina < playerStatsRef.current.maxStamina) {
                 const newStamina = Math.min(playerStatsRef.current.maxStamina, playerStatsRef.current.stamina + pRegen);
                 updateStats('player', { stamina: newStamina });
+            }
+
+            // --- SPIRIT DEPLETION ---
+            if (playerStatsRef.current.isSpiritMode) {
+                const spiritDrain = 2.0; // Drains in ~5 seconds (at 100ms interval, that's 50 ticks)
+                const nextSpirit = Math.max(0, playerStatsRef.current.spiritGauge - spiritDrain);
+                updateStats('player', { spiritGauge: nextSpirit });
+                
+                if (nextSpirit <= 0) {
+                    updateStats('player', { isSpiritMode: false });
+                    setNotification("SPIRIT DEPLETED");
+                    setTimeout(() => setNotification(null), 1500);
+                }
+            } else if (playerStatsRef.current.spiritGauge > 0 && pAction === MoveType.IDLE) {
+                // Optional: Slow decay when idle if not in spirit mode
+                // const nextSpirit = Math.max(0, playerStatsRef.current.spiritGauge - 0.1);
+                // updateStats('player', { spiritGauge: nextSpirit });
             }
 
             // Ritual Buff Timer
@@ -1158,13 +1204,25 @@ const App: React.FC = () => {
         if (!move || !heroData) return null;
 
         const attributes = heroData.attributes;
+        const style = playerStatsRef.current.combatStyle || CombatStyle.NAK_DAL;
+        const styleModifiers = COMBAT_STYLE_MODIFIERS[style];
         let damage = move.damage;
+
+        // Apply Style modifiers
+        if (moveType === MoveType.PUNCH && styleModifiers.punch) damage *= styleModifiers.punch;
+        if (moveType === MoveType.KICK && styleModifiers.kick) damage *= styleModifiers.kick;
+        if (moveType === MoveType.ELBOW && styleModifiers.elbow) damage *= styleModifiers.elbow;
 
         if (moveType === MoveType.PUNCH) damage *= heroData.modifiers.punch;
         if (moveType === MoveType.UPPERCUT) damage *= (heroData.modifiers.punch * 1.2);
         if (moveType === MoveType.KICK) damage *= heroData.modifiers.kick;
         if (moveType === MoveType.ELBOW) damage *= heroData.modifiers.elbow;
         if (moveType === MoveType.KNEE) damage *= heroData.modifiers.knee;
+
+        // Spirit Mode Bonus
+        if (playerStatsRef.current.isSpiritMode) {
+            damage *= 1.25; // 25% extra damage in Spirit Mode
+        }
 
         damage += (attributes.strength * 0.8);
 
@@ -1204,6 +1262,9 @@ const App: React.FC = () => {
             activeSakYant: playerStatsRef.current.activeSakYant,
             damageModifiers: playerStatsRef.current.damageModifiers,
             ritualBuff: playerStatsRef.current.ritualBuff,
+            spiritGauge: playerStatsRef.current.spiritGauge,
+            isSpiritMode: playerStatsRef.current.isSpiritMode,
+            combatStyle: playerStatsRef.current.combatStyle,
             ...overrides
         };
     };
@@ -1220,6 +1281,18 @@ const App: React.FC = () => {
 
     const applyPlayerOnHitEffects = (damage: number) => {
         setComboCount(c => c + 1);
+
+        // Build Spirit Gauge
+        if (!playerStatsRef.current.isSpiritMode) {
+            const spiritGain = 4 + (comboCount * 0.5); // More gain for combos
+            const nextSpirit = Math.min(100, playerStatsRef.current.spiritGauge + spiritGain);
+            updateStats('player', { spiritGauge: nextSpirit });
+
+            if (nextSpirit >= 100) {
+                setNotification("SPIRIT FULL! Pres T to Activate!");
+                setTimeout(() => setNotification(null), 2000);
+            }
+        }
 
         if (playerStatsRef.current.activeSakYant?.type === SakYantType.NAGA) {
             const lvl = playerStatsRef.current.activeSakYant.level;
@@ -1347,6 +1420,19 @@ const App: React.FC = () => {
     }, [gameMode, gameState]);
 
 
+    const activateSpiritMode = () => {
+        if (playerStatsRef.current.isSpiritMode) return;
+        
+        updateStats('player', { isSpiritMode: true });
+        setNotification("ANGKOR SPIRIT ACTIVATED!");
+        playSound('HEAL'); // Placeholder for spirit sound
+        setTimeout(() => setNotification(null), 2000);
+
+        if (gameMode === GameMode.PVP_ONLINE) {
+            broadcastOnlineStats({ isSpiritMode: true });
+        }
+    };
+
     useEffect(() => {
         const handleInteract = () => {
         };
@@ -1369,7 +1455,13 @@ const App: React.FC = () => {
                 if (e.code === 'KeyO') handlePlayerAction(MoveType.ELBOW);
                 if (e.code === 'KeyP') handlePlayerAction(MoveType.KNEE);
                 if (e.code === 'Space') handlePlayerAction(MoveType.BLOCK);
-                if (e.code === 'KeyT') handlePlayerAction(MoveType.TAUNT);
+                if (e.code === 'KeyT') {
+                    if (playerStatsRef.current.spiritGauge >= 100 && !playerStatsRef.current.isSpiritMode) {
+                        activateSpiritMode();
+                    } else {
+                        handlePlayerAction(MoveType.TAUNT);
+                    }
+                }
                 if (e.code === 'ShiftLeft' || e.code === 'ShiftRight') {
                     handlePlayerAction(MoveType.ROLL);
                 }
@@ -1971,6 +2063,13 @@ const App: React.FC = () => {
                             <div className="h-1.5 mt-0.5 bg-gray-800 rounded-sm relative overflow-hidden skew-x-[-10deg] w-2/3">
                                 <div className="h-full bg-yellow-400 transition-all duration-100" style={{ width: `${(playerStats.stamina / playerStats.maxStamina) * 100}%` }}></div>
                             </div>
+                            {/* Spirit Gauge */}
+                            <div className="h-1.5 mt-0.5 bg-gray-800 rounded-sm relative overflow-hidden skew-x-[-10deg] w-1/2">
+                                <div 
+                                    className={`h-full transition-all duration-300 ${playerStats.isSpiritMode ? 'bg-orange-500 animate-pulse' : 'bg-blue-400'}`} 
+                                    style={{ width: `${playerStats.spiritGauge}%` }}
+                                ></div>
+                            </div>
                             {/* Sak Yant Integrity */}
                             {playerStats.activeSakYant && (
                                 <div className="mt-1 flex items-center gap-1">
@@ -2370,7 +2469,8 @@ const App: React.FC = () => {
                 <CharacterSelect
                     inventory={inventory}
                     equippedHeroId={selectedHero}
-                    onEquip={(id) => setSelectedHero(id)}
+                    equippedStyle={equippedStyle}
+                    onEquip={(id, style) => { setSelectedHero(id); setEquippedStyle(style); }}
                     onPreview={(id) => setPreviewHero(id)}
                     onBack={() => { setGameState(GameState.MENU); setPreviewHero(null); }}
                 />
@@ -2390,11 +2490,14 @@ const App: React.FC = () => {
 
             {gameState === GameState.ONLINE_LOBBY && (
                 <OnlineLobby
+                    currentProvince={selectedProvince}
+                    onProvinceSelect={setSelectedProvince}
                     onBack={() => { setGameState(GameState.MENU); setOnlineState(null); }}
                     onPeerData={handlePvpData}
-                    onGameStart={(isHost, roomId, conn) => {
+                    onGameStart={(isHost, id, conn) => {
                         setIsOnlineHost(isHost);
-                        setOnlineState(isHost ? 'HOSTING' : 'CONNECTED');
+                        setRoomId(id);
+                        if (conn) setPeerConnection(conn);
                         setGameMode(GameMode.PVP_ONLINE);
                         startFight(GameMode.PVP_ONLINE, isHost);
                     }}

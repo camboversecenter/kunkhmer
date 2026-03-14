@@ -1,5 +1,5 @@
 
-import { Move, MoveType, SakYantType, SakYantData, FighterStats, PlayerInventory, HeroId, HeroData } from './types';
+import { Move, MoveType, SakYantType, SakYantData, FighterStats, PlayerInventory, HeroId, HeroData, CombatStyle, ProvinceId } from './types';
 
 export const MOVES: Record<string, Move> = {
   [MoveType.PUNCH]: {
@@ -92,6 +92,45 @@ export const MOVES: Record<string, Move> = {
     hitChance: 0,
     color: '#facc15' // Gold
   }
+};
+
+export const PROVINCES: Record<ProvinceId, string> = {
+    [ProvinceId.PP]: 'Phnom Penh',
+    [ProvinceId.SR]: 'Siem Reap',
+    [ProvinceId.BTB]: 'Battambang',
+    [ProvinceId.KPC]: 'Kampong Cham',
+    [ProvinceId.KPS]: 'Kampong Speu',
+    [ProvinceId.KPT]: 'Kampot',
+    [ProvinceId.KEP]: 'Kep',
+    [ProvinceId.KOK]: 'Koh Kong',
+    [ProvinceId.KRT]: 'Kratie',
+    [ProvinceId.MDK]: 'Mondulkiri',
+    [ProvinceId.BMC]: 'Banteay Meanchey',
+    [ProvinceId.ODC]: 'Oddar Meanchey',
+    [ProvinceId.PLN]: 'Pailin',
+    [ProvinceId.PREV]: 'Preah Vihear',
+    [ProvinceId.PRV]: 'Prey Veng',
+    [ProvinceId.PS]: 'Pursat',
+    [ProvinceId.RTK]: 'Ratanakiri',
+    [ProvinceId.ST]: 'Stung Treng',
+    [ProvinceId.SVR]: 'Svay Rieng',
+    [ProvinceId.TKM]: 'Takeo',
+    [ProvinceId.TBK]: 'Tbong Khmum'
+};
+
+export const COMBAT_STYLE_MODIFIERS: Record<CombatStyle, Record<string, number>> = {
+    [CombatStyle.NAK_DAL]: {
+        punch: 1.25,
+        staminaCost: 0.8 // 20% cheaper punches
+    },
+    [CombatStyle.NAK_TOAT]: {
+        kick: 1.25,
+        knockback: 1.5 // Conceptual for now
+    },
+    [CombatStyle.NAK_KAENG]: {
+        elbow: 1.3,
+        counterBonus: 1.2 // Conceptual for now
+    }
 };
 
 export const HEROES_DB: Record<HeroId, HeroData> = {
@@ -303,35 +342,50 @@ export const ADVENTURE_OPPONENTS: FighterStats[] = [
         locationName: "Naga Bridge",
         mapPosition: { x: 50, y: 95 },
         description: "Guards the western causeway entrance.",
-        maxHealth: 400, currentHealth: 400, stamina: 100, maxStamina: 100, activeSakYant: null 
+        maxHealth: 400, currentHealth: 400,
+        stamina: 120,
+        maxStamina: 120,
+        staminaRegenMultiplier: 1.0,
+        spiritGauge: 0,
+        isSpiritMode: false,
+        combatStyle: CombatStyle.NAK_DAL,
+        activeSakYant: null
     },
     { 
         name: "Moat Patrol", 
         locationName: "Western Moat",
         mapPosition: { x: 50, y: 88 },
         description: "Patrols the waters surrounding the complex.",
-        maxHealth: 450, currentHealth: 450, stamina: 105, maxStamina: 105, activeSakYant: null 
+        maxHealth: 450, currentHealth: 450, stamina: 105, maxStamina: 105,
+        spiritGauge: 0, isSpiritMode: false, combatStyle: CombatStyle.NAK_DAL,
+        activeSakYant: null 
     },
     { 
         name: "Gatekeeper", 
         locationName: "West Gopura",
         mapPosition: { x: 50, y: 80 },
         description: "The first true test of the temple.",
-        maxHealth: 500, currentHealth: 500, stamina: 120, maxStamina: 120, activeSakYant: { type: SakYantType.HANUMAN, level: 1, currentIntegrity: 250, maxIntegrity: 250 } 
+        maxHealth: 500, currentHealth: 500, stamina: 120, maxStamina: 120,
+        spiritGauge: 0, isSpiritMode: false, combatStyle: CombatStyle.NAK_DAL,
+        activeSakYant: { type: SakYantType.HANUMAN, level: 1, currentIntegrity: 250, maxIntegrity: 250 } 
     },
     { 
         name: "The Scholar", 
         locationName: "South Library",
         mapPosition: { x: 30, y: 70 },
         description: "Uses ancient techniques found in scrolls.",
-        maxHealth: 550, currentHealth: 550, stamina: 110, maxStamina: 110, activeSakYant: { type: SakYantType.GAO_YORD, level: 1, currentIntegrity: 300, maxIntegrity: 300 } 
+        maxHealth: 550, currentHealth: 550, stamina: 110, maxStamina: 110,
+        spiritGauge: 0, isSpiritMode: false, combatStyle: CombatStyle.NAK_DAL,
+        activeSakYant: { type: SakYantType.GAO_YORD, level: 1, currentIntegrity: 300, maxIntegrity: 300 } 
     },
     { 
         name: "The Archivist", 
         locationName: "North Library",
         mapPosition: { x: 70, y: 70 },
         description: "A master of defensive arts.",
-        maxHealth: 600, currentHealth: 600, stamina: 120, maxStamina: 120, activeSakYant: { type: SakYantType.NAGA, level: 2, currentIntegrity: 350, maxIntegrity: 350 } 
+        maxHealth: 600, currentHealth: 600, stamina: 120, maxStamina: 120,
+        spiritGauge: 0, isSpiritMode: false, combatStyle: CombatStyle.NAK_DAL,
+        activeSakYant: { type: SakYantType.NAGA, level: 2, currentIntegrity: 350, maxIntegrity: 350 } 
     },
 
     // --- THE MIDDLE ENCLOSURE ---
@@ -340,35 +394,45 @@ export const ADVENTURE_OPPONENTS: FighterStats[] = [
         locationName: "Outer Gallery",
         mapPosition: { x: 20, y: 50 },
         description: "His skin is as hard as the stone walls.",
-        maxHealth: 700, currentHealth: 700, stamina: 130, maxStamina: 130, activeSakYant: { type: SakYantType.TWIN_TIGER, level: 2, currentIntegrity: 400, maxIntegrity: 400 } 
+        maxHealth: 700, currentHealth: 700, stamina: 130, maxStamina: 130,
+        spiritGauge: 0, isSpiritMode: false, combatStyle: CombatStyle.NAK_DAL,
+        activeSakYant: { type: SakYantType.TWIN_TIGER, level: 2, currentIntegrity: 400, maxIntegrity: 400 } 
     },
     { 
         name: "Apsara Dancer", 
         locationName: "Hall of Dancers",
         mapPosition: { x: 80, y: 50 },
         description: "Deceptively fast and agile movements.",
-        maxHealth: 650, currentHealth: 650, stamina: 180, maxStamina: 180, activeSakYant: { type: SakYantType.HANUMAN, level: 3, currentIntegrity: 500, maxIntegrity: 500 } 
+        maxHealth: 650, currentHealth: 650, stamina: 180, maxStamina: 180,
+        spiritGauge: 0, isSpiritMode: false, combatStyle: CombatStyle.NAK_TOAT,
+        activeSakYant: { type: SakYantType.HANUMAN, level: 3, currentIntegrity: 500, maxIntegrity: 500 } 
     },
     { 
         name: "Terrace Sentinel", 
         locationName: "Cruciform Terrace",
         mapPosition: { x: 50, y: 55 },
         description: "Watches over the crossroads of the temple.",
-        maxHealth: 800, currentHealth: 800, stamina: 140, maxStamina: 140, activeSakYant: { type: SakYantType.GAO_YORD, level: 3, currentIntegrity: 550, maxIntegrity: 550 } 
+        maxHealth: 800, currentHealth: 800, stamina: 140, maxStamina: 140,
+        spiritGauge: 0, isSpiritMode: false, combatStyle: CombatStyle.NAK_DAL,
+        activeSakYant: { type: SakYantType.GAO_YORD, level: 3, currentIntegrity: 550, maxIntegrity: 550 } 
     },
     { 
         name: "Shadow Monk", 
         locationName: "Echo Gallery",
         mapPosition: { x: 35, y: 40 },
         description: "Strikes from the darkness.",
-        maxHealth: 750, currentHealth: 750, stamina: 160, maxStamina: 160, activeSakYant: { type: SakYantType.TWIN_TIGER, level: 3, currentIntegrity: 600, maxIntegrity: 600 } 
+        maxHealth: 750, currentHealth: 750, stamina: 160, maxStamina: 160,
+        spiritGauge: 0, isSpiritMode: false, combatStyle: CombatStyle.NAK_KAENG,
+        activeSakYant: { type: SakYantType.TWIN_TIGER, level: 3, currentIntegrity: 600, maxIntegrity: 600 } 
     },
     { 
         name: "Wall Breaker", 
         locationName: "Inner Enclosure",
         mapPosition: { x: 65, y: 40 },
         description: "Can shatter stones with his knees.",
-        maxHealth: 900, currentHealth: 900, stamina: 150, maxStamina: 150, activeSakYant: { type: SakYantType.HANUMAN, level: 4, currentIntegrity: 650, maxIntegrity: 650 } 
+        maxHealth: 900, currentHealth: 900, stamina: 150, maxStamina: 150,
+        spiritGauge: 0, isSpiritMode: false, combatStyle: CombatStyle.NAK_KAENG,
+        activeSakYant: { type: SakYantType.HANUMAN, level: 4, currentIntegrity: 650, maxIntegrity: 650 } 
     },
 
     // --- THE INNER SANCTUARY (BAKAN) ---
@@ -377,34 +441,44 @@ export const ADVENTURE_OPPONENTS: FighterStats[] = [
         locationName: "Corner Tower SW",
         mapPosition: { x: 30, y: 25 },
         description: "Protector of the first peak.",
-        maxHealth: 1000, currentHealth: 1000, stamina: 180, maxStamina: 180, activeSakYant: { type: SakYantType.NAGA, level: 3, currentIntegrity: 700, maxIntegrity: 700 } 
+        maxHealth: 1000, currentHealth: 1000, stamina: 180, maxStamina: 180,
+        spiritGauge: 0, isSpiritMode: false, combatStyle: CombatStyle.NAK_DAL,
+        activeSakYant: { type: SakYantType.NAGA, level: 3, currentIntegrity: 700, maxIntegrity: 700 } 
     },
     { 
         name: "Tower Warden NE", 
         locationName: "Corner Tower NE",
         mapPosition: { x: 70, y: 25 },
         description: "Protector of the second peak.",
-        maxHealth: 1100, currentHealth: 1100, stamina: 190, maxStamina: 190, activeSakYant: { type: SakYantType.TWIN_TIGER, level: 4, currentIntegrity: 750, maxIntegrity: 750 } 
+        maxHealth: 1100, currentHealth: 1100, stamina: 190, maxStamina: 190,
+        spiritGauge: 0, isSpiritMode: false, combatStyle: CombatStyle.NAK_DAL,
+        activeSakYant: { type: SakYantType.TWIN_TIGER, level: 4, currentIntegrity: 750, maxIntegrity: 750 } 
     },
     { 
         name: "The Climber", 
         locationName: "Stairs to Bakan",
         mapPosition: { x: 40, y: 15 },
         description: "Only the worthy may ascend.",
-        maxHealth: 1200, currentHealth: 1200, stamina: 200, maxStamina: 200, activeSakYant: { type: SakYantType.GAO_YORD, level: 4, currentIntegrity: 800, maxIntegrity: 800 } 
+        maxHealth: 1200, currentHealth: 1200, stamina: 200, maxStamina: 200,
+        spiritGauge: 0, isSpiritMode: false, combatStyle: CombatStyle.NAK_DAL,
+        activeSakYant: { type: SakYantType.GAO_YORD, level: 4, currentIntegrity: 800, maxIntegrity: 800 } 
     },
     { 
         name: "Royal Executioner", 
         locationName: "Upper Terrace",
         mapPosition: { x: 60, y: 15 },
         description: "The King's personal bodyguard.",
-        maxHealth: 1400, currentHealth: 1400, stamina: 220, maxStamina: 220, activeSakYant: { type: SakYantType.TWIN_TIGER, level: 5, currentIntegrity: 1000, maxIntegrity: 1000 } 
+        maxHealth: 1400, currentHealth: 1400, stamina: 220, maxStamina: 220,
+        spiritGauge: 0, isSpiritMode: false, combatStyle: CombatStyle.NAK_DAL,
+        activeSakYant: { type: SakYantType.TWIN_TIGER, level: 5, currentIntegrity: 1000, maxIntegrity: 1000 } 
     },
     { 
         name: "The God King", 
         locationName: "Central Sanctuary",
         mapPosition: { x: 50, y: 5 },
         description: "The Avatar of Vishnu. The ultimate master.",
-        maxHealth: 2000, currentHealth: 2000, stamina: 350, maxStamina: 350, activeSakYant: { type: SakYantType.NAGA, level: 5, currentIntegrity: 2000, maxIntegrity: 2000 } 
+        maxHealth: 2000, currentHealth: 2000, stamina: 350, maxStamina: 350,
+        spiritGauge: 0, isSpiritMode: false, combatStyle: CombatStyle.NAK_DAL,
+        activeSakYant: { type: SakYantType.NAGA, level: 5, currentIntegrity: 2000, maxIntegrity: 2000 } 
     }
 ];

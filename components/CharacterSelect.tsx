@@ -2,18 +2,20 @@
 import React, { useState, useEffect } from 'react';
 import { ChevronLeft, Zap, Shield, Swords, Activity, User, Lock, CheckCircle2, Heart, BarChart3 } from 'lucide-react';
 import { HEROES_DB, GAME_ECONOMY } from '../constants';
-import { HeroId, PlayerInventory } from '../types';
+import { HeroId, PlayerInventory, CombatStyle } from '../types';
 
 interface CharacterSelectProps {
   inventory: PlayerInventory;
   equippedHeroId: HeroId;
-  onEquip: (heroId: HeroId) => void;
+  equippedStyle: CombatStyle;
+  onEquip: (heroId: HeroId, style: CombatStyle) => void;
   onPreview: (heroId: HeroId) => void;
   onBack: () => void;
 }
 
-const CharacterSelect: React.FC<CharacterSelectProps> = ({ inventory, equippedHeroId, onEquip, onPreview, onBack }) => {
+const CharacterSelect: React.FC<CharacterSelectProps> = ({ inventory, equippedHeroId, equippedStyle, onEquip, onPreview, onBack }) => {
   const [activeHero, setActiveHero] = useState<HeroId>(equippedHeroId);
+  const [selectedStyle, setSelectedStyle] = useState<CombatStyle>(equippedStyle);
   const hero = HEROES_DB[activeHero];
   const isUnlocked = inventory.unlockedHeroes?.[activeHero] || false;
   const isEquipped = equippedHeroId === activeHero;
@@ -155,7 +157,7 @@ const CharacterSelect: React.FC<CharacterSelectProps> = ({ inventory, equippedHe
                              </div>
                              <div>
                                  <h4 className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-3 flex items-center gap-2">
-                                    <Zap size={12} /> Combat Specialty
+                                    <Zap size={12} /> Hero Specialization
                                  </h4>
                                  <ul className="space-y-2 text-xs text-gray-300">
                                      {hero.modifiers.kick > 1.1 && <li className="flex gap-2"><Zap size={14} className="text-yellow-400" /> Powerful Kicks</li>}
@@ -169,6 +171,35 @@ const CharacterSelect: React.FC<CharacterSelectProps> = ({ inventory, equippedHe
                          </div>
                     </div>
 
+                    {/* FIGHTING STYLE SELECTION */}
+                    <div className="mb-6">
+                         <h3 className="text-xs font-bold text-gray-500 uppercase tracking-widest mb-3">Choose Fighting Style (Eight Limbs)</h3>
+                         <div className="grid grid-cols-1 gap-2">
+                             {[
+                                 { id: CombatStyle.NAK_DAL, name: 'Nak Dal (Puncher)', desc: '+25% Punch Dmg, -20% Stamina Cost', icon: Swords },
+                                 { id: CombatStyle.NAK_TOAT, name: 'Nak Toat (Kicker)', desc: '+25% Kick Dmg, Higher Knockback', icon: Activity },
+                                 { id: CombatStyle.NAK_KAENG, name: 'Nak Kaeng (Elbowist)', desc: '+30% Elbow Dmg, Pro Counter', icon: Zap }
+                             ].map((style) => (
+                                 <button
+                                     key={style.id}
+                                     onClick={() => setSelectedStyle(style.id)}
+                                     className={`
+                                         flex items-center gap-3 p-3 rounded-xl border-2 transition-all
+                                         ${selectedStyle === style.id ? 'bg-yellow-500/10 border-yellow-500 shadow-[0_0_15px_rgba(234,179,8,0.2)]' : 'bg-gray-900 border-gray-800 hover:border-gray-700'}
+                                     `}
+                                 >
+                                     <div className={`p-2 rounded-lg ${selectedStyle === style.id ? 'bg-yellow-500 text-black' : 'bg-gray-800 text-gray-400'}`}>
+                                         <style.icon size={18} />
+                                     </div>
+                                     <div className="text-left">
+                                         <div className={`text-sm font-bold ${selectedStyle === style.id ? 'text-yellow-500' : 'text-white'}`}>{style.name}</div>
+                                         <div className="text-[10px] text-gray-400 font-mono tracking-tight">{style.desc}</div>
+                                     </div>
+                                 </button>
+                             ))}
+                         </div>
+                    </div>
+
                     {/* Action Button */}
                     <div className="pb-8">
                          {isUnlocked ? (
@@ -177,12 +208,12 @@ const CharacterSelect: React.FC<CharacterSelectProps> = ({ inventory, equippedHe
                                     <CheckCircle2 size={20} /> EQUIPPED
                                 </button>
                              ) : (
-                                <button
-                                    onClick={() => onEquip(activeHero)}
-                                    className="w-full py-4 bg-white hover:bg-gray-100 text-black font-black text-lg uppercase tracking-widest rounded-xl transition-all transform active:scale-95 shadow-lg flex items-center justify-center gap-2"
-                                >
-                                    SELECT HERO
-                                </button>
+                                 <button
+                                     onClick={() => onEquip(activeHero, selectedStyle)}
+                                     className="w-full py-4 bg-white hover:bg-gray-100 text-black font-black text-lg uppercase tracking-widest rounded-xl transition-all transform active:scale-95 shadow-lg flex items-center justify-center gap-2"
+                                 >
+                                     SELECT HERO & STYLE
+                                 </button>
                              )
                          ) : (
                              <button disabled className="w-full py-4 bg-gray-800 text-gray-600 font-bold uppercase tracking-widest rounded-xl border border-gray-700 flex items-center justify-center gap-2 cursor-not-allowed">
