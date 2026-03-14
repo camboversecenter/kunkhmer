@@ -74,7 +74,7 @@ const getContext = () => {
 };
 
 // --- SFX ---
-type SoundType = 'hit' | 'damage' | 'block' | 'miss' | 'move' | 'start' | 'win' | 'lose';
+export type SoundType = 'hit' | 'damage' | 'block' | 'miss' | 'move' | 'start' | 'win' | 'lose' | 'heal';
 
 export const playSound = (type: SoundType) => {
     if (isMuted) return;
@@ -187,6 +187,14 @@ export const playSound = (type: SoundType) => {
             gain.gain.linearRampToValueAtTime(0.01, t + 1);
             osc.start(t);
             osc.stop(t + 1);
+            break;
+            
+        case 'heal':
+            // Uplifting chime
+            playNote(ctx, 523.25, t, 0.1, 'sine');
+            playNote(ctx, 659.25, t + 0.05, 0.1, 'sine');
+            playNote(ctx, 783.99, t + 0.1, 0.1, 'sine');
+            playNote(ctx, 1046.50, t + 0.15, 0.3, 'sine');
             break;
     }
 };

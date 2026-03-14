@@ -1,5 +1,3 @@
-
-import React from 'react';
 import { ThreeElements } from '@react-three/fiber';
 
 export enum GameState {
@@ -331,12 +329,4 @@ export interface LeaderboardEntry {
 
 export type LeaderboardPeriod = 'ALL_TIME' | 'THIS_SEASON';
 
-/* Fix for JSX elements in R3F. Extend both global and React namespaces to ensure compatibility with HTML and Three.js elements. 
-   Merging ThreeElements into the IntrinsicElements interface allows standard React and R3F elements to coexist. */
-declare global {
-  namespace JSX {
-    interface IntrinsicElements extends ThreeElements {
-      [elemName: string]: any;
-    }
-  }
-}
+

@@ -5,6 +5,14 @@
   "start_url": "/",
   "display": "fullscreen",
   "background_color": "#1a1a1a",
-  "theme_color": "#1a1a1a",
-  "orientation": "any"
+  "theme_color": "#eab308",
+  "orientation": "landscape",
+  "icons": [
+    {
+      "src": "/icon-512.png",
+      "type": "image/png",
+      "sizes": "512x512",
+      "purpose": "any maskable"
+    }
+  ]
 }

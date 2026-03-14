@@ -1,9 +1,11 @@
 
 import React, { useRef, useEffect, useMemo } from 'react';
 import { useFrame, useLoader } from '@react-three/fiber';
-import { Group, Vector3, Mesh, MeshStandardMaterial, MeshBasicMaterial, MathUtils, AdditiveBlending, DoubleSide } from 'three';
+import { Group, Vector3, Mesh, MeshStandardMaterial, MeshBasicMaterial, MathUtils, AdditiveBlending, DoubleSide, Object3D } from 'three';
 import { Sparkles, Billboard, Torus, Icosahedron, Ring, Text, useGLTF } from '@react-three/drei';
 import { useXR } from '@react-three/xr';
+import { ThreeElements } from '@react-three/fiber';
+
 import { VRMLoaderPlugin, VRMUtils } from '@pixiv/three-vrm';
 import gsap from 'gsap';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
@@ -12,7 +14,7 @@ import { DevicePerformanceProfile, GameState, MoveType, RitualBuff, SakYantType 
 import { SAK_YANT_DB, skinBase, skinFlushed, shortsMaterial } from '../constants';
 
 const applyHumanMaterialTuning = (
-    root: Group,
+    root: Object3D,
     detail: DevicePerformanceProfile['characterDetail'],
     shadowsEnabled: boolean,
     hideCoreBody: boolean
@@ -469,7 +471,7 @@ const TwinTigerVFX = ({
         if (ringRef.current) {
             const t = state.clock.elapsedTime;
             ringRef.current.scale.setScalar(1 + Math.sin(t * 10) * 0.05);
-            ringRef.current.material.opacity = 0.3 + Math.sin(t * 5) * 0.2;
+            (ringRef.current.material as any).opacity = 0.3 + Math.sin(t * 5) * 0.2;
         }
     });
 
@@ -634,8 +636,8 @@ const SakYantAura = ({
 const KramaHeadband = () => {
     return (
         <group position={[0, 0.12, 0]} rotation={[0.15, 0, 0]}>
-            <mesh castShadow>
-                <torusGeometry args={[0.145, 0.03, 16, 64]} rotation={[Math.PI / 2, 0, 0]} />
+            <mesh castShadow rotation={[Math.PI / 2, 0, 0]}>
+                <torusGeometry args={[0.145, 0.03, 16, 64]} />
                 <meshStandardMaterial color="#b91c1c" roughness={0.9} />
             </mesh>
             {Array.from({ length: 16 }).map((_, i) => (
@@ -735,8 +737,8 @@ const RealisticLeg = React.memo(({
                         <meshPhysicalMaterial {...skinBase} />
                     </mesh>
                     {/* Toes */}
-                    <mesh position={[0, -0.01, 0.16]}>
-                        <capsuleGeometry args={[0.055, 0.1, 4, 16]} rotation={[0, 0, Math.PI / 2]} />
+                    <mesh position={[0, -0.01, 0.16]} rotation={[0, 0, Math.PI / 2]}>
+                        <capsuleGeometry args={[0.055, 0.1, 4, 16]} />
                         <meshPhysicalMaterial {...skinFlushed} />
                     </mesh>
                 </group>
@@ -862,9 +864,11 @@ const Fighter: React.FC<FighterProps> = ({
               .to(gsapState.current.torsoRot, { duration: 0.25, y: 0, x: 0, ease: "power2.out" }, ">-0.1");
         } else if (action === MoveType.KICK) {
             // SNAP ROUNDHOUSE KICK - Powerful pivot and extension
-            tl.to(gsapState.current.legRPos, { duration: 0.15, y: 1.25, z: 0.3, kneeFlexR: 1.8, ease: "back.in(1.2)" })
+            tl.to(gsapState.current.legRPos, { duration: 0.15, y: 1.25, z: 0.3, ease: "back.in(1.2)" })
+              .to(gsapState.current, { duration: 0.15, kneeFlexR: 1.8, ease: "back.in(1.2)" }, "<")
               .to(gsapState.current.torsoRot, { duration: 0.15, y: -1.6 * dir, x: 0.2, ease: "expo.out" }, ">")
-              .to(gsapState.current.legRPos, { duration: 0.15, x: 0.75 * dir, y: 1.5, z: 0.45, kneeFlexR: 0, ease: "expo.out" }, ">-0.05")
+              .to(gsapState.current.legRPos, { duration: 0.15, x: 0.75 * dir, y: 1.5, z: 0.45, ease: "expo.out" }, ">-0.05")
+              .to(gsapState.current, { duration: 0.15, kneeFlexR: 0, ease: "expo.out" }, "<")
               .to(gsapState.current.legLRot, { duration: 0.15, y: -0.6 * dir, ease: "power2.out" }, "<");
               
             tl.to(gsapState.current.legRPos, { duration: 0.35, x: -0.18, y: 1.0, z: 0, ease: "power2.inOut" })

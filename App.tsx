@@ -1,10 +1,11 @@
-
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { CameraShake, OrbitControls, Text, Float } from '@react-three/drei';
 import { EffectComposer, Bloom, Vignette } from '@react-three/postprocessing';
 import { XR, VRButton, useXR, Controllers, useController, useXREvent } from '@react-three/xr';
-import { Vector3, Group, MathUtils, PerspectiveCamera, MeshBasicMaterial } from 'three';
+import { Vector3, Group, MathUtils, PerspectiveCamera, MeshBasicMaterial, Object3D } from 'three';
+import { ThreeElements } from '@react-three/fiber';
+
 import {
     AssetDownloadStatus,
     DeviceCapabilities,
@@ -29,9 +30,10 @@ import {
     CombatStyle,
     SceneryTheme,
     ProvinceId,
-    UserProfile
+    UserProfile,
+    RendererTelemetry
 } from './types';
-import { MOVES, HEROES_DB, SAK_YANT_DB, FIGHTER_CONFIG, INITIAL_INVENTORY, GAME_ECONOMY, COMBAT_STYLE_MODIFIERS, PROVINCES } from './constants';
+import { MOVES, HEROES_DB, SAK_YANT_DB, FIGHTER_CONFIG, INITIAL_INVENTORY, GAME_ECONOMY, COMBAT_STYLE_MODIFIERS, PROVINCES, ADVENTURE_OPPONENTS } from './constants';
 import Fighter from './components/Fighter';
 import Arena from './components/Arena';
 import Scenery from './components/Scenery';
@@ -43,7 +45,8 @@ import Joystick from './components/Joystick';
 import AdventureMap from './components/AdventureMap';
 import TreasureBoxOverlay from './components/TreasureBoxOverlay';
 import CharacterSelect from './components/CharacterSelect';
-import { playSound, startBackgroundMusic, stopBackgroundMusic, toggleMute } from './services/audioService';
+import MobileOverlay from './components/MobileOverlay';
+import { playSound, startBackgroundMusic, stopBackgroundMusic, toggleMute, SoundType } from './services/audioService';
 import { initializeGoogleAuth, renderGoogleButton, getLeaderboard, submitScore, cancelAuth, saveUserData, loadUserData } from './services/authService';
 import { initializePeer, connectToPeer, sendData, sendToPeer, destroyPeer } from './services/peerService';
 import {
@@ -119,7 +122,9 @@ const INITIAL_STATS: FighterStats = {
     stamina: 120,
     maxStamina: 120,
     staminaRegenMultiplier: 1.0,
-    activeSakYant: null
+    activeSakYant: null,
+    spiritGauge: 0,
+    isSpiritMode: false
 };
 
 const INITIAL_PROFILE: PlayerProfile = {
@@ -134,99 +139,152 @@ const INITIAL_PROFILE: PlayerProfile = {
 
 const VRControllerHandler = ({
     onAction,
-    playerPositionRef
+    playerPositionRef,
+    gameState,
+    onStartFight,
+    simulated = false
 }: {
     onAction: (move: MoveType) => void,
-    playerPositionRef: React.MutableRefObject<Vector3>
+    playerPositionRef: React.MutableRefObject<Vector3>,
+    gameState: GameState,
+    onStartFight: () => void,
+    simulated?: boolean
 }) => {
     const { player, isPresenting } = useXR();
+    const effectivePresenting = isPresenting || simulated;
     const leftController = useController('left');
     const rightController = useController('right');
+    const stateRef = useRef(gameState);
 
-    // Trigger attacks
-    useXREvent('selectstart', (e) => {
-        if (!isPresenting) return;
-        // Check which controller triggered the event
-        if (e.controller === rightController) {
-            onAction(MoveType.PUNCH);
-        } else if (e.controller === leftController) {
-            onAction(MoveType.KICK);
+    useEffect(() => {
+        stateRef.current = gameState;
+    }, [gameState]);
+
+    // Keyboard simulation for PC VR testing
+    useEffect(() => {
+        if (!simulated) return;
+
+        const handleKeyDown = (e: KeyboardEvent) => {
+            if (stateRef.current === GameState.MENU && e.key === 'Enter') {
+                onStartFight();
+            }
+            if (stateRef.current === GameState.FIGHTING) {
+                if (e.key === 'q') onAction(MoveType.PUNCH);
+                if (e.key === 'e') onAction(MoveType.KICK);
+                if (e.key === 'r') onAction(MoveType.UPPERCUT);
+                if (e.key === 'f') onAction(MoveType.KNEE);
+                if (e.key === 't') onAction(MoveType.ELBOW);
+                if (e.key === 'g') onAction(MoveType.TAUNT);
+                if (e.key === 'Shift') onAction(MoveType.BLOCK);
+            }
+        };
+
+        const handleKeyUp = (e: KeyboardEvent) => {
+            if (stateRef.current === GameState.FIGHTING && e.key === 'Shift') {
+                onAction(MoveType.IDLE);
+            }
+        };
+
+        window.addEventListener('keydown', handleKeyDown);
+        window.addEventListener('keyup', handleKeyUp);
+        return () => {
+            window.removeEventListener('keydown', handleKeyDown);
+            window.removeEventListener('keyup', handleKeyUp);
+        };
+    }, [simulated, onAction, onStartFight]);
+
+    // Trigger attacks / Start game
+    useXREvent('selectstart', (e: any) => {
+        if (!effectivePresenting) return;
+        
+        if (stateRef.current === GameState.MENU) {
+            onStartFight();
+            return;
+        }
+
+        if (stateRef.current === GameState.FIGHTING) {
+            // Check if source matches right or left controller
+            if (rightController && e.inputSource === rightController.inputSource) {
+                onAction(MoveType.PUNCH);
+            } else if (leftController && e.inputSource === leftController.inputSource) {
+                onAction(MoveType.KICK);
+            }
         }
     });
 
     // Grip for blocking
     useXREvent('squeezestart', (e) => {
-        onAction(MoveType.BLOCK);
+        if (stateRef.current === GameState.FIGHTING) onAction(MoveType.BLOCK);
     });
 
     useXREvent('squeezeend', (e) => {
-        onAction(MoveType.IDLE);
+        if (stateRef.current === GameState.FIGHTING) onAction(MoveType.IDLE);
     });
 
     useFrame((state, delta) => {
-        if (!isPresenting || !player) return;
+        if (!effectivePresenting) return;
 
-        // --- LOCOMOTION (Left Thumbstick) ---
+        const activePlayer = player || (simulated ? { position: playerPositionRef.current } : null);
+        if (!activePlayer) return;
+
+        // --- LOCOMOTION ---
+        let moveX = 0;
+        let moveY = 0;
+
         if (leftController?.inputSource?.gamepad) {
             const axes = leftController.inputSource.gamepad.axes;
-            // Standard mapping: 2 = Horizontal, 3 = Vertical
-            const axisX = axes[2] || 0;
-            const axisY = axes[3] || 0;
-
-            if (Math.abs(axisX) > 0.1 || Math.abs(axisY) > 0.1) {
-                const speed = 2.5 * delta;
-                
-                // Get camera direction for forward movement
-                const direction = new Vector3();
-                state.camera.getWorldDirection(direction);
-                direction.y = 0;
-                direction.normalize();
-
-                const side = new Vector3().crossVectors(state.camera.up, direction).normalize();
-
-                // Move the XR Rig
-                player.position.add(direction.multiplyScalar(-axisY * speed));
-                player.position.add(side.multiplyScalar(axisX * speed));
-
-                // Boundary check
-                player.position.x = MathUtils.clamp(player.position.x, -5, 5);
-                player.position.z = MathUtils.clamp(player.position.z, -5, 5);
-            }
+            moveX = axes[2] !== undefined ? axes[2] : axes[0] || 0;
+            moveY = axes[3] !== undefined ? axes[3] : axes[1] || 0;
+        } else if (simulated) {
+            // WASD Simulation
+            const keys = (window as any).simulatedKeys || new Set();
+            if (keys.has('w')) moveY = -1;
+            if (keys.has('s')) moveY = 1;
+            if (keys.has('a')) moveX = -1;
+            if (keys.has('d')) moveX = 1;
         }
 
-        // --- POSITION SYNC ---
-        // Keep the game logic's player position in sync with XR rig
-        playerPositionRef.current.copy(player.position);
+        if (Math.abs(moveX) > 0.1 || Math.abs(moveY) > 0.1) {
+            const speed = 2.5 * delta;
+            const direction = new Vector3();
+            state.camera.getWorldDirection(direction);
+            direction.y = 0;
+            direction.normalize();
+            const side = new Vector3().crossVectors(state.camera.up, direction).normalize();
 
-        // --- GESTURE DETECTION ---
-        if (leftController && rightController) {
+            activePlayer.position.add(direction.multiplyScalar(-moveY * speed));
+            activePlayer.position.add(side.multiplyScalar(moveX * speed));
+
+            activePlayer.position.x = MathUtils.clamp(activePlayer.position.x, -5, 5);
+            activePlayer.position.z = MathUtils.clamp(activePlayer.position.z, -5, 5);
+        }
+
+        playerPositionRef.current.copy(activePlayer.position);
+
+        if (stateRef.current === GameState.FIGHTING && leftController && rightController) {
             const leftPos = leftController.controller.position;
             const rightPos = rightController.controller.position;
             const headPos = state.camera.position;
 
-            // 1. High Guard (Both hands near face)
             const distL = leftPos.distanceTo(headPos);
             const distR = rightPos.distanceTo(headPos);
             
             if (distL < 0.3 && distR < 0.3) {
                 onAction(MoveType.BLOCK);
             }
-
-            // 2. Spirit Trigger (Both hands high up and wide)
-            if (leftPos.y > headPos.y + 0.3 && rightPos.y > headPos.y + 0.3) {
-                const handDist = leftPos.distanceTo(rightPos);
-                if (handDist > 0.6) {
-                    onAction(MoveType.TAUNT); // Use taunt as proxy or call activateSpiritMode directly if we pass it
-                }
-            }
         }
 
-        // --- ADDITIONAL BUTTON MAPPING ---
-        if (rightController?.inputSource?.gamepad) {
-            const gamepad = rightController.inputSource.gamepad;
-            // Button 4 = A/X, Button 5 = B/Y
-            if (gamepad.buttons[4]?.pressed) onAction(MoveType.UPPERCUT);
-            if (gamepad.buttons[5]?.pressed) onAction(MoveType.KNEE);
+        if (stateRef.current === GameState.FIGHTING) {
+            if (rightController?.inputSource?.gamepad) {
+                const gamepad = rightController.inputSource.gamepad;
+                if (gamepad.buttons[4]?.pressed) onAction(MoveType.UPPERCUT);
+                if (gamepad.buttons[5]?.pressed) onAction(MoveType.KNEE);
+            }
+            if (leftController?.inputSource?.gamepad) {
+                const gamepad = leftController.inputSource.gamepad;
+                if (gamepad.buttons[4]?.pressed) onAction(MoveType.ELBOW);
+                if (gamepad.buttons[5]?.pressed) onAction(MoveType.TAUNT);
+            }
         }
     });
 
@@ -237,53 +295,72 @@ const VRFloatingHUD = ({
     playerStats,
     opponentStats,
     playerColor,
-    opponentColor
+    opponentColor,
+    gameState,
+    onStartFight,
+    simulated = false
 }: {
     playerStats: FighterStats,
     opponentStats: FighterStats,
     playerColor: string,
-    opponentColor: string
+    opponentColor: string,
+    gameState: GameState,
+    onStartFight: () => void,
+    simulated?: boolean
 }) => {
     const { isPresenting } = useXR();
-    if (!isPresenting) return null;
+    if (!isPresenting && !simulated) return null;
 
     return (
-        <group position={[0, 2.5, -2]}>
-            <Float speed={2} rotationIntensity={0.2} floatIntensity={0.5}>
-                <group scale={[0.8, 0.8, 0.8]}>
-                    {/* Player Stats Panel */}
-                    <group position={[-1.2, 0, 0]}>
-                        <Text position={[0, 0.3, 0]} fontSize={0.1} color="white" font="https://fonts.gstatic.com/s/pressstart2p/v15/e3t4euO8T-267oIAQAu6jTrynsmwp6A.woff">
-                            YOU
+        <group position={[0, 2, -2]}>
+            <Float speed={2} rotationIntensity={0.1} floatIntensity={0.2}>
+                {gameState === GameState.MENU ? (
+                    <group>
+                        <Text position={[0, 0.5, 0]} fontSize={0.2} color="cyan" font="https://fonts.gstatic.com/s/pressstart2p/v15/e3t4euO8T-267oIAQAu6jTrynsmwp6A.woff">
+                            KUN KHMER FIGHT 3D
                         </Text>
-                        <mesh position={[0, 0, 0]}>
-                            <planeGeometry args={[1, 0.1]} />
-                            <meshBasicMaterial color="#333" />
-                        </mesh>
-                        <mesh position={[-(1 - playerStats.currentHealth / playerStats.maxHealth) / 2, 0, 0.01]}>
-                            <planeGeometry args={[playerStats.currentHealth / playerStats.maxHealth, 0.08]} />
-                            <meshBasicMaterial color={playerColor} />
+                        <Text position={[0, 0, 0]} fontSize={0.15} color="white">
+                            Press TRIGGER to Start Fight
+                        </Text>
+                        <mesh position={[0, -0.3, 0]} onClick={onStartFight}>
+                            <capsuleGeometry args={[0.3, 0.1, 4, 16]} />
+                            <meshBasicMaterial color="#eab308" />
+                            <Text position={[0, 0, 0.1]} fontSize={0.08} color="black" font="https://fonts.gstatic.com/s/pressstart2p/v15/e3t4euO8T-267oIAQAu6jTrynsmwp6A.woff">START</Text>
                         </mesh>
                     </group>
+                ) : (
+                    <group scale={[0.8, 0.8, 0.8]} position={[0, 0.5, 0]}>
+                        <group position={[-1.2, 0, 0]}>
+                            <Text position={[0, 0.3, 0]} fontSize={0.1} color="white" font="https://fonts.gstatic.com/s/pressstart2p/v15/e3t4euO8T-267oIAQAu6jTrynsmwp6A.woff">
+                                YOU
+                            </Text>
+                            <mesh position={[0, 0, 0]}>
+                                <planeGeometry args={[1, 0.1]} />
+                                <meshBasicMaterial color="#333" />
+                            </mesh>
+                            <mesh position={[-(1 - playerStats.currentHealth / playerStats.maxHealth) / 2, 0, 0.01]}>
+                                <planeGeometry args={[playerStats.currentHealth / playerStats.maxHealth, 0.08]} />
+                                <meshBasicMaterial color={playerColor} />
+                            </mesh>
+                        </group>
 
-                    {/* VS Divider */}
-                    <Text position={[0, 0, 0]} fontSize={0.2} color="#eab308">VS</Text>
+                        <Text position={[0, 0, 0]} fontSize={0.2} color="#eab308">VS</Text>
 
-                    {/* Opponent Stats Panel */}
-                    <group position={[1.2, 0, 0]}>
-                        <Text position={[0, 0.3, 0]} fontSize={0.1} color="white" font="https://fonts.gstatic.com/s/pressstart2p/v15/e3t4euO8T-267oIAQAu6jTrynsmwp6A.woff">
-                            OPPONENT
-                        </Text>
-                        <mesh position={[0, 0, 0]}>
-                            <planeGeometry args={[1, 0.1]} />
-                            <meshBasicMaterial color="#333" />
-                        </mesh>
-                        <mesh position={[(1 - opponentStats.currentHealth / opponentStats.maxHealth) / 2, 0, 0.01]}>
-                            <planeGeometry args={[opponentStats.currentHealth / opponentStats.maxHealth, 0.08]} />
-                            <meshBasicMaterial color={opponentColor} />
-                        </mesh>
+                        <group position={[1.2, 0, 0]}>
+                            <Text position={[0, 0.3, 0]} fontSize={0.1} color="white" font="https://fonts.gstatic.com/s/pressstart2p/v15/e3t4euO8T-267oIAQAu6jTrynsmwp6A.woff">
+                                OPPONENT
+                            </Text>
+                            <mesh position={[0, 0, 0]}>
+                                <planeGeometry args={[1, 0.1]} />
+                                <meshBasicMaterial color="#333" />
+                            </mesh>
+                            <mesh position={[(1 - opponentStats.currentHealth / opponentStats.maxHealth) / 2, 0, 0.01]}>
+                                <planeGeometry args={[opponentStats.currentHealth / opponentStats.maxHealth, 0.08]} />
+                                <meshBasicMaterial color={opponentColor} />
+                            </mesh>
+                        </group>
                     </group>
-                </group>
+                )}
             </Float>
         </group>
     );
@@ -534,7 +611,7 @@ const SceneEffects = ({ performanceProfile }: { performanceProfile: DevicePerfor
     if (!performanceProfile.enablePostProcessing || isPresenting) return null;
 
     return (
-        <EffectComposer disableNormalPass>
+        <EffectComposer enableNormalPass={false}>
             <Bloom luminanceThreshold={1} mipmapBlur intensity={performanceProfile.bloomIntensity} />
             <Vignette eskil={false} offset={0.1} darkness={performanceProfile.vignetteDarkness} />
         </EffectComposer>
@@ -587,6 +664,8 @@ const App: React.FC = () => {
     const [isOnlineHost, setIsOnlineHost] = useState(true);
     const [selectedHero, setSelectedHero] = useState<HeroId>(HeroId.DARA);
     const [previewHero, setPreviewHero] = useState<HeroId | null>(null);
+    const [roomId, setRoomId] = useState<string | null>(null);
+    const [peerConnection, setPeerConnection] = useState<any>(null);
 
     // Fighters
     const [playerStats, setPlayerStats] = useState<FighterStats>(INITIAL_STATS);
@@ -613,6 +692,7 @@ const App: React.FC = () => {
     const [previewSakYantId, setPreviewSakYantId] = useState<SakYantType | null>(null); // For Menu Preview
     const [returnToFight, setReturnToFight] = useState(false);
     const [lastMatchRewards, setLastMatchRewards] = useState({ xp: 0, currency: 0, heroXp: 0, levelUp: false, heroLevelUp: false });
+    const [simulatedVR, setSimulatedVR] = useState(false);
     const [lootReward, setLootReward] = useState<LootReward | null>(null);
 
     // UI/View
@@ -642,6 +722,34 @@ const App: React.FC = () => {
     const deviceCapabilitiesRef = useRef(deviceCapabilities);
     const adaptivePresetCooldownRef = useRef(0);
 
+    useEffect(() => {
+        const handleSimKeys = (e: KeyboardEvent) => {
+            if (e.key.toLowerCase() === 'v' && e.shiftKey) {
+                setSimulatedVR(prev => {
+                    const newState = !prev;
+                    setNotification(newState ? "Entered PC VR Simulator (WASD to Move, Q/E/R/F to Attack)" : "Exited VR Simulator");
+                    setTimeout(() => setNotification(null), 3000);
+                    return newState;
+                });
+            }
+
+            if (!(window as any).simulatedKeys) (window as any).simulatedKeys = new Set();
+            (window as any).simulatedKeys.add(e.key.toLowerCase());
+        };
+
+        const handleSimKeysUp = (e: KeyboardEvent) => {
+            if ((window as any).simulatedKeys) (window as any).simulatedKeys.delete(e.key.toLowerCase());
+        };
+
+        window.addEventListener('keydown', handleSimKeys);
+        window.addEventListener('keyup', handleSimKeysUp);
+        return () => {
+            window.removeEventListener('keydown', handleSimKeys);
+            window.removeEventListener('keyup', handleSimKeysUp);
+        };
+    }, [simulatedVR]);
+
+    // Adaptive graphics logic
     const activeGraphicsPreset = graphicsMode === 'AUTO' ? autoGraphicsPreset : graphicsMode;
     const performanceProfile = useMemo(
         () => buildPerformanceProfile(deviceCapabilities, activeGraphicsPreset),
@@ -998,11 +1106,11 @@ const App: React.FC = () => {
             const newInventory: PlayerInventory = {
                 ...inventory,
                 unlockedYants: { ...inventory.unlockedYants },
-                durabilityLevels: { ...(inventory.durabilityLevels || {}) },
-                sakYantPieces: { ...(inventory.sakYantPieces || {}) },
-                unlockedHeroes: { ...(inventory.unlockedHeroes || {}) },
-                heroLevels: { ...(inventory.heroLevels || {}) },
-                heroExp: { ...(inventory.heroExp || {}) }
+                durabilityLevels: { ...(inventory.durabilityLevels || {}) } as Record<SakYantType, number>,
+                sakYantPieces: { ...(inventory.sakYantPieces || {}) } as Record<SakYantType, number>,
+                unlockedHeroes: { ...(inventory.unlockedHeroes || {}) } as Record<HeroId, boolean>,
+                heroLevels: { ...(inventory.heroLevels || {}) } as Record<HeroId, number>,
+                heroExp: { ...(inventory.heroExp || {}) } as Record<HeroId, number>
             };
 
             if (gameMode === GameMode.ADVENTURE) {
@@ -1425,7 +1533,7 @@ const App: React.FC = () => {
         
         updateStats('player', { isSpiritMode: true });
         setNotification("ANGKOR SPIRIT ACTIVATED!");
-        playSound('HEAL'); // Placeholder for spirit sound
+        playSound('heal'); // Placeholder for spirit sound
         setTimeout(() => setNotification(null), 2000);
 
         if (gameMode === GameMode.PVP_ONLINE) {
@@ -1919,16 +2027,26 @@ const App: React.FC = () => {
                         onTelemetry={handleRendererTelemetry}
                         onFpsSample={setFpsEstimate}
                     />
-                    <VRControllerHandler onAction={handlePlayerAction} playerPositionRef={playerPositionRef} />
+                    <VRControllerHandler 
+                        onAction={handlePlayerAction} 
+                        playerPositionRef={playerPositionRef} 
+                        gameState={gameState} 
+                        onStartFight={() => startFight()} 
+                        simulated={simulatedVR}
+                    />
                     <VRFloatingHUD
                         playerStats={playerStats}
                         opponentStats={opponentStats}
                         playerColor={playerCornerColor}
                         opponentColor={opponentCornerColor}
+                        gameState={gameState}
+                        onStartFight={() => startFight()}
+                        simulated={simulatedVR}
                     />
+                    <Controllers />
 
                     <ViewController
-                        isFirstPerson={isFirstPerson}
+                        isFirstPerson={isFirstPerson || simulatedVR}
                         playerPosition={playerPositionRef.current}
                         opponentPosition={opponentPositionRef.current}
                         playerAction={playerAction}
@@ -1958,7 +2076,7 @@ const App: React.FC = () => {
                             isFacingRight={true} // Default
                             comboCount={comboCount}
                             sakYant={getDisplayedSakYant()}
-                            isFirstPerson={isFirstPerson}
+                            isFirstPerson={isFirstPerson || simulatedVR}
                             isPlayer={gameState === GameState.FIGHTING || gameState === GameState.VICTORY}
                             inputState={keysPressed}
                             positionRef={playerPositionRef}
@@ -2032,7 +2150,7 @@ const App: React.FC = () => {
             )}
 
             {/* 2. GAME HUD */}
-            {gameState === GameState.FIGHTING && (
+            {gameState === GameState.FIGHTING && !simulatedVR && (
                 <div className="absolute inset-0 z-10 pointer-events-none flex flex-col justify-between px-2 pb-2 pt-10 md:pt-12 md:px-8">
                     {/* Health Bars */}
                     <div className="flex justify-between items-start w-full max-w-5xl mx-auto gap-4">
@@ -2507,6 +2625,8 @@ const App: React.FC = () => {
             {showHowToPlay && (
                 <HowToPlay onBack={() => setShowHowToPlay(false)} />
             )}
+
+            <MobileOverlay />
 
         </div>
     );
