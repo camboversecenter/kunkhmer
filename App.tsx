@@ -31,7 +31,7 @@ import {
     ProvinceId,
     UserProfile
 } from './types';
-import { MOVES, HEROES_DB, SAK_YANT_DB, INITIAL_STATS, INITIAL_PROFILE, INITIAL_INVENTORY, GAME_ECONOMY, COMBAT_STYLE_MODIFIERS, PROVINCES } from './constants';
+import { MOVES, HEROES_DB, SAK_YANT_DB, FIGHTER_CONFIG, INITIAL_INVENTORY, GAME_ECONOMY, COMBAT_STYLE_MODIFIERS, PROVINCES } from './constants';
 import Fighter from './components/Fighter';
 import Arena from './components/Arena';
 import Scenery from './components/Scenery';
