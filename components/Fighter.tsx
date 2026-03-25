@@ -946,6 +946,17 @@ const Fighter: React.FC<FighterProps> = ({
         torsoLean: 0
     });
 
+    // Enhanced idle animation state
+    const idlePhase = useRef(0); // continuous phase accumulator
+    const weightShiftTarget = useRef(0); // -1 = left foot, 1 = right foot
+    const weightShiftCurrent = useRef(0);
+    const nextWeightShiftTime = useRef(0);
+    const footShufflePhase = useRef(0);
+    const guardBobPhase = useRef(0);
+    // Damage accumulation for visual wear
+    const damageAccumulated = useRef(0);
+    const sweatIntensity = useRef(0);
+
     const currentKneeFlexR = useRef(0);
     const activeMoveColor = getMoveColor(action);
     const comboIntensity = Math.min(comboCount, 5) * 0.5;
@@ -1051,8 +1062,25 @@ const Fighter: React.FC<FighterProps> = ({
             }
         }
 
-        // --- IDLE VARIATIONS LOGIC ---
+        // --- ENHANCED IDLE VARIATIONS LOGIC ---
         if (action === MoveType.IDLE) {
+            idlePhase.current += delta;
+            guardBobPhase.current += delta * 2.5; // Guard bob rhythm
+
+            // Weight shifting between feet every 2-4 seconds
+            if (totalTime > nextWeightShiftTime.current) {
+                weightShiftTarget.current = weightShiftTarget.current <= 0 ? 0.6 + Math.random() * 0.4 : -(0.6 + Math.random() * 0.4);
+                nextWeightShiftTime.current = totalTime + 2 + Math.random() * 2;
+                // Occasional foot shuffle
+                footShufflePhase.current = 1.0;
+            }
+
+            // Smooth weight shift interpolation
+            weightShiftCurrent.current = MathUtils.lerp(weightShiftCurrent.current, weightShiftTarget.current, delta * 2.5);
+
+            // Decay foot shuffle
+            footShufflePhase.current = Math.max(0, footShufflePhase.current - delta * 3);
+
             if (totalTime > nextIdleVarTime.current) {
                 targetIdleMod.current = {
                     headY: (Math.random() - 0.5) * 0.4,
@@ -1062,8 +1090,19 @@ const Fighter: React.FC<FighterProps> = ({
                 };
                 nextIdleVarTime.current = totalTime + 2 + Math.random() * 3;
             }
+
+            // Update sweat intensity based on accumulated damage
+            sweatIntensity.current = Math.min(1.0, sweatIntensity.current + delta * 0.01);
         } else {
             targetIdleMod.current = { headY: 0, headZ: 0, guardHeight: 0, torsoLean: 0 };
+            weightShiftCurrent.current = MathUtils.lerp(weightShiftCurrent.current, 0, delta * 4);
+            footShufflePhase.current = 0;
+        }
+
+        // Track damage for visual wear
+        if (action === MoveType.HIT) {
+            damageAccumulated.current = Math.min(1.0, damageAccumulated.current + 0.08);
+            sweatIntensity.current = Math.min(1.0, sweatIntensity.current + 0.05);
         }
 
         currentIdleMod.current.headY = MathUtils.lerp(currentIdleMod.current.headY, targetIdleMod.current.headY, delta * 2);
@@ -1127,10 +1166,18 @@ const Fighter: React.FC<FighterProps> = ({
             }
         }
 
+        // --- REALISTIC IDLE STANCE WITH BREATHING & WEIGHT SHIFT ---
+        const ws = weightShiftCurrent.current; // -1 to 1, which foot has weight
+        const breathDepth = 0.06 + sweatIntensity.current * 0.04; // Heavier breathing when tired
+        const breathRate = 3 + sweatIntensity.current * 2; // Faster breathing when tired
+        const deepBreath = Math.sin(totalTime * breathRate) * breathDepth;
+        const guardBob = Math.sin(guardBobPhase.current) * 0.03; // Subtle rhythmic guard movement
+        const shuffleOffset = Math.sin(footShufflePhase.current * Math.PI) * 0.04;
+
         let targetTorsoRot = {
-            x: -0.05 + currentIdleMod.current.torsoLean,
-            y: -0.2 * dir + stanceSway * 0.05,
-            z: 0
+            x: -0.05 + currentIdleMod.current.torsoLean + deepBreath * 0.3,
+            y: -0.2 * dir + stanceSway * 0.05 + ws * 0.08, // Lean toward weighted foot
+            z: ws * 0.04 // Slight tilt with weight shift
         };
 
         // Walking Animation Modifications
@@ -1140,21 +1187,35 @@ const Fighter: React.FC<FighterProps> = ({
             targetTorsoRot.y += Math.cos(totalTime * 12) * 0.05;
         }
 
-        let targetArmLPos = { x: 0.24, y: 0.32 + currentIdleMod.current.guardHeight, z: 0 };
-        let targetArmLRot = { x: -0.8 + breath * 0.05 - (currentIdleMod.current.guardHeight), y: 0.3, z: 0.2 };
-        let targetForearmLRot = { x: -2.1, y: 0, z: 0 };
+        // Guard arms bob with breathing and shift
+        let targetArmLPos = { x: 0.24, y: 0.32 + currentIdleMod.current.guardHeight + guardBob, z: 0 };
+        let targetArmLRot = {
+            x: -0.8 + deepBreath * 0.5 - currentIdleMod.current.guardHeight + guardBob * 2,
+            y: 0.3 + ws * 0.05,
+            z: 0.2
+        };
+        let targetForearmLRot = { x: -2.1 + guardBob * 1.5, y: 0, z: 0 };
 
-        let targetArmRPos = { x: -0.24, y: 0.32 + currentIdleMod.current.guardHeight, z: 0 };
-        let targetArmRRot = { x: -0.9 + breath * 0.05 - (currentIdleMod.current.guardHeight), y: -0.3, z: -0.2 };
-        let targetForearmRRot = { x: -2.3, y: 0, z: 0 };
+        let targetArmRPos = { x: -0.24, y: 0.32 + currentIdleMod.current.guardHeight + guardBob, z: 0 };
+        let targetArmRRot = {
+            x: -0.9 + deepBreath * 0.5 - currentIdleMod.current.guardHeight + guardBob * 2,
+            y: -0.3 + ws * 0.05,
+            z: -0.2
+        };
+        let targetForearmRRot = { x: -2.3 + guardBob * 1.5, y: 0, z: 0 };
 
-        let targetHeadRot = { x: 0.1, y: currentIdleMod.current.headY * dir, z: currentIdleMod.current.headZ };
+        let targetHeadRot = {
+            x: 0.1 + deepBreath * 0.15,
+            y: currentIdleMod.current.headY * dir,
+            z: currentIdleMod.current.headZ + ws * 0.03
+        };
 
-        let targetLegLPos = { x: 0.18, y: 0.8, z: 0.1 };
-        let targetLegLRot = { x: 0, y: 0, z: 0 };
+        // Legs respond to weight shift - weighted leg bends slightly, other leg relaxes
+        let targetLegLPos = { x: 0.18 + shuffleOffset, y: 0.8, z: 0.1 };
+        let targetLegLRot = { x: ws > 0 ? ws * 0.15 : 0, y: 0, z: ws * 0.03 };
 
-        let targetLegRPos = { x: -0.18, y: 0.8, z: -0.1 };
-        let targetLegRRot = { x: 0, y: 0, z: 0 };
+        let targetLegRPos = { x: -0.18 - shuffleOffset, y: 0.8, z: -0.1 };
+        let targetLegRRot = { x: ws < 0 ? -ws * 0.15 : 0, y: 0, z: -ws * 0.03 };
 
         // Walking Legs Override
         if (isWalking) {
