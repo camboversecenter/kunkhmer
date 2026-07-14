@@ -1,14 +1,6 @@
 
+import { Peer } from "peerjs";
 import { PeerData } from "../types";
-
-// Declare global PeerJS type (loaded via script tag)
-declare class Peer {
-    constructor(id?: string, options?: any);
-    on(event: string, callback: (data: any) => void): void;
-    connect(id: string): any;
-    destroy(): void;
-    id: string;
-}
 
 let peer: Peer | null = null;
 let connections: any[] = []; // Array to hold multiple connections (for Spectator mode)
@@ -22,7 +14,7 @@ export const initializePeer = (
     if (peer) destroyPeer();
 
     // Create a random ID for the host
-    peer = new Peer(undefined, {
+    peer = new Peer({
         debug: 2
     });
 

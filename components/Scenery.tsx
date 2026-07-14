@@ -52,8 +52,8 @@ const TempleTower: React.FC<TempleTowerProps> = ({ position, scale, materialProp
             </mesh>
 
             {/* Detail Ridges */}
-            <mesh position={[0, 4.5, 0]}>
-                <torusGeometry args={[0.95, 0.05, 6, 8]} rotation={[Math.PI / 2, 0, 0]} />
+            <mesh position={[0, 4.5, 0]} rotation={[Math.PI / 2, 0, 0]}>
+                <torusGeometry args={[0.95, 0.05, 6, 8]} />
                 <meshStandardMaterial {...materialProps} />
             </mesh>
         </group>
@@ -166,8 +166,8 @@ const AngkorSilhouette: React.FC<{ color: string }> = ({ color }) => {
                     <planeGeometry args={[5, 10]} />
                     {mat}
                 </mesh>
-                <mesh position={[0, 12, 0]}>
-                    <cylinderGeometry args={[0, 2.5, 8, 4]} rotation={[0, Math.PI / 4, 0]} />
+                <mesh position={[0, 12, 0]} rotation={[0, Math.PI / 4, 0]}>
+                    <cylinderGeometry args={[0, 2.5, 8, 4]} />
                     {mat}
                 </mesh>
             </group>
@@ -177,8 +177,8 @@ const AngkorSilhouette: React.FC<{ color: string }> = ({ color }) => {
                         <planeGeometry args={[4, 8]} />
                         {mat}
                     </mesh>
-                    <mesh position={[0, 9.5, 0]}>
-                        <cylinderGeometry args={[0, 2, 6, 4]} rotation={[0, Math.PI / 4, 0]} />
+                    <mesh position={[0, 9.5, 0]} rotation={[0, Math.PI / 4, 0]}>
+                        <cylinderGeometry args={[0, 2, 6, 4]} />
                         {mat}
                     </mesh>
                 </group>
@@ -189,8 +189,8 @@ const AngkorSilhouette: React.FC<{ color: string }> = ({ color }) => {
                         <planeGeometry args={[3, 6]} />
                         {mat}
                     </mesh>
-                    <mesh position={[0, 7, 0]}>
-                        <cylinderGeometry args={[0, 1.5, 5, 4]} rotation={[0, Math.PI / 4, 0]} />
+                    <mesh position={[0, 7, 0]} rotation={[0, Math.PI / 4, 0]}>
+                        <cylinderGeometry args={[0, 1.5, 5, 4]} />
                         {mat}
                     </mesh>
                 </group>
@@ -451,8 +451,7 @@ const Scenery: React.FC<SceneryProps> = ({ theme, performanceProfile }) => {
                     <Cloud
                         opacity={0.5}
                         speed={0.1}
-                        width={50}
-                        depth={10}
+                        bounds={[50, 10, 10]}
                         segments={performanceProfile.cloudSegments}
                         color={theme.fogColor}
                     />

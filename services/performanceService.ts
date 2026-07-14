@@ -368,7 +368,7 @@ const requestIdle = (callback: () => void) => {
     return () => undefined;
   }
 
-  if ('requestIdleCallback' in window) {
+  if (typeof window.requestIdleCallback === 'function') {
     const id = window.requestIdleCallback(() => callback());
     return () => window.cancelIdleCallback(id);
   }

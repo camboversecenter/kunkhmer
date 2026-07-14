@@ -1,0 +1,7 @@
+# Copy this file to .dev.vars (git-ignored) for local full-stack development:
+#   npm run build
+#   npx wrangler pages dev dist
+#
+# In production, set GEMINI_API_KEY as an encrypted environment variable in the
+# Cloudflare Pages dashboard (Settings -> Environment variables).
+GEMINI_API_KEY=your-gemini-api-key-here

@@ -50,8 +50,17 @@ const HowToPlay: React.FC<HowToPlayProps> = ({ onBack }) => {
                             <li className="flex justify-between items-center border-b border-gray-700 pb-2">
                                 <span>Knee (Kumpleang)</span> <span className="font-mono bg-gray-900 px-2 py-1 rounded text-yellow-500">P</span>
                             </li>
-                            <li className="flex justify-between items-center pb-2">
+                            <li className="flex justify-between items-center border-b border-gray-700 pb-2">
                                 <span>Block (Rung)</span> <span className="font-mono bg-gray-900 px-2 py-1 rounded text-yellow-500">Space</span>
+                            </li>
+                            <li className="flex justify-between items-center border-b border-gray-700 pb-2">
+                                <span>Uppercut (Mok Keng)</span> <span className="font-mono bg-gray-900 px-2 py-1 rounded text-yellow-500">Shift + U</span>
+                            </li>
+                            <li className="flex justify-between items-center border-b border-gray-700 pb-2">
+                                <span>Taunt / Spirit Mode</span> <span className="font-mono bg-gray-900 px-2 py-1 rounded text-yellow-500">T</span>
+                            </li>
+                            <li className="flex justify-between items-center pb-2">
+                                <span>Dodge Roll (Romiel)</span> <span className="font-mono bg-gray-900 px-2 py-1 rounded text-yellow-500">Shift</span>
                             </li>
                         </ul>
                     </div>
@@ -63,19 +72,25 @@ const HowToPlay: React.FC<HowToPlayProps> = ({ onBack }) => {
                         </div>
                         <ul className="space-y-3">
                             <li className="flex justify-between items-center border-b border-gray-700 pb-2">
-                                <span>Punch</span> <span className="font-mono bg-gray-900 px-2 py-1 rounded text-yellow-500">Trigger</span>
+                                <span>Punch (Mat)</span> <span className="font-mono bg-gray-900 px-2 py-1 rounded text-yellow-500">Right Trigger</span>
                             </li>
                             <li className="flex justify-between items-center border-b border-gray-700 pb-2">
-                                <span>Kick</span> <span className="font-mono bg-gray-900 px-2 py-1 rounded text-yellow-500">A / X</span>
+                                <span>Kick (Ti)</span> <span className="font-mono bg-gray-900 px-2 py-1 rounded text-yellow-500">Left Trigger</span>
                             </li>
                             <li className="flex justify-between items-center border-b border-gray-700 pb-2">
-                                <span>Elbow</span> <span className="font-mono bg-gray-900 px-2 py-1 rounded text-yellow-500">Thumbstick Click</span>
+                                <span>Uppercut (Mok Keng)</span> <span className="font-mono bg-gray-900 px-2 py-1 rounded text-yellow-500">A</span>
                             </li>
                             <li className="flex justify-between items-center border-b border-gray-700 pb-2">
-                                <span>Knee</span> <span className="font-mono bg-gray-900 px-2 py-1 rounded text-yellow-500">B / Y</span>
+                                <span>Knee (Kumpleang)</span> <span className="font-mono bg-gray-900 px-2 py-1 rounded text-yellow-500">B</span>
+                            </li>
+                            <li className="flex justify-between items-center border-b border-gray-700 pb-2">
+                                <span>Elbow (Sok)</span> <span className="font-mono bg-gray-900 px-2 py-1 rounded text-yellow-500">X</span>
+                            </li>
+                            <li className="flex justify-between items-center border-b border-gray-700 pb-2">
+                                <span>Taunt</span> <span className="font-mono bg-gray-900 px-2 py-1 rounded text-yellow-500">Y</span>
                             </li>
                             <li className="flex justify-between items-center pb-2">
-                                <span>Block</span> <span className="font-mono bg-gray-900 px-2 py-1 rounded text-yellow-500">Grip</span>
+                                <span>Block (Rung)</span> <span className="font-mono bg-gray-900 px-2 py-1 rounded text-yellow-500">Grip / Both hands up</span>
                             </li>
                         </ul>
                     </div>
